@@ -618,7 +618,9 @@ struct CLR_DBG_Commands
 
     struct Debugging_Value_GetField
     {
-        CLR_RT_HeapBlock *    m_heapblock;
+        // this is a heap block handle (see HeapBlockToHandle/HandleToHeapBlock in Debugger.cpp)
+        // has to be stored as CLR_UINT32 because CLR_RT_HeapBlock * has different size on 32 and 64 bit platforms
+        CLR_UINT32            m_heapblock;
         CLR_UINT32            m_offset;
         CLR_RT_FieldDef_Index m_fd;
 
@@ -630,8 +632,10 @@ struct CLR_DBG_Commands
 
     struct Debugging_Value_GetArray
     {
-        CLR_RT_HeapBlock *m_heapblock;
-        CLR_UINT32        m_index;
+        // this is a heap block handle (see HeapBlockToHandle/HandleToHeapBlock in Debugger.cpp)
+        // has to be stored as CLR_UINT32 because CLR_RT_HeapBlock * has different size on 32 and 64 bit platforms
+        CLR_UINT32 m_heapblock;
+        CLR_UINT32 m_index;
 
 
         //
@@ -641,7 +645,9 @@ struct CLR_DBG_Commands
 
     struct Debugging_Value_GetBlock
     {
-        CLR_RT_HeapBlock *m_heapblock;
+        // this is a heap block handle (see HeapBlockToHandle/HandleToHeapBlock in Debugger.cpp)
+        // has to be stored as CLR_UINT32 because CLR_RT_HeapBlock * has different size on 32 and 64 bit platforms
+        CLR_UINT32 m_heapblock;
 
 
         //
@@ -661,16 +667,20 @@ struct CLR_DBG_Commands
 
     struct Debugging_Value_SetBlock
     {
-        CLR_RT_HeapBlock *m_heapblock;
-        CLR_UINT32        m_dt;                // CLR_RT_HeapBlock::DataType ()
-        CLR_UINT8         m_builtinValue[8];
+        // this is a heap block handle (see HeapBlockToHandle/HandleToHeapBlock in Debugger.cpp)
+        // has to be stored as CLR_UINT32 because CLR_RT_HeapBlock * has different size on 32 and 64 bit platforms
+        CLR_UINT32 m_heapblock;
+        CLR_UINT32 m_dt;                // CLR_RT_HeapBlock::DataType ()
+        CLR_UINT8  m_builtinValue[8];
     };
 
     struct Debugging_Value_SetArray
     {
-        CLR_RT_HeapBlock_Array *m_heapblock;
-        CLR_UINT32              m_index;
-        CLR_UINT8               m_builtinValue[8];
+        // this is a heap block handle to a CLR_RT_HeapBlock_Array (see HeapBlockToHandle/HandleToHeapBlock in Debugger.cpp)
+        // has to be stored as CLR_UINT32 because CLR_RT_HeapBlock_Array * has different size on 32 and 64 bit platforms
+        CLR_UINT32 m_heapblock;
+        CLR_UINT32 m_index;
+        CLR_UINT8  m_builtinValue[8];
     };
 
     //--//
@@ -709,8 +719,10 @@ struct CLR_DBG_Commands
 
     struct Debugging_Value_Assign
     {
-        CLR_RT_HeapBlock *m_heapblockSrc;
-        CLR_RT_HeapBlock *m_heapblockDst;
+        // these are heap block handles (see HeapBlockToHandle/HandleToHeapBlock in Debugger.cpp)
+        // have to be stored as CLR_UINT32 because CLR_RT_HeapBlock * has different size on 32 and 64 bit platforms
+        CLR_UINT32 m_heapblockSrc;
+        CLR_UINT32 m_heapblockDst;
 
         //
         // The reply is an array of Debugging_Value
@@ -795,7 +807,9 @@ struct CLR_DBG_Commands
     struct Debugging_Resolve_VirtualMethod
     {
         CLR_RT_MethodDef_Index m_md;
-        CLR_RT_HeapBlock      *m_obj;
+        // this is a heap block handle (see HeapBlockToHandle/HandleToHeapBlock in Debugger.cpp)
+        // has to be stored as CLR_UINT32 because CLR_RT_HeapBlock * has different size on 32 and 64 bit platforms
+        CLR_UINT32 m_obj;
 
         struct Reply
         {

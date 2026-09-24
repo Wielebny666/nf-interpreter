@@ -22,6 +22,95 @@ CLR_DBG_Debugger *g_CLR_DBG_Debugger;
 
 BlockStorageDevice *CLR_DBG_Debugger::m_deploymentStorageDevice = NULL;
 
+#if defined(NANOCLR_ENABLE_SOURCELEVELDEBUGGING)
+
+#if !defined(UINTPTR_MAX)
+#error "UINTPTR_MAX is required to select the heap block handle encoding"
+#endif
+
+// Heap block references exchanged with the debugger over the wire protocol are 32-bit handles.
+// On 32-bit platforms the handle is the pointer itself.
+// On 64-bit platforms it's the offset from the managed heap base, biased so that 0 stays reserved for nullptr.
+// The mapping is linear, so the debugger can do arithmetic on handles (e.g. +4/-4) and still round-trip them.
+// 0xFFFFFFFF is reserved for the "no reference" sentinel (CLR_RT_HeapBlock *)-1 and never decodes to a heap block.
+
+static const CLR_UINT32 c_HeapBlockHandleSentinel = 0xFFFFFFFFu;
+
+// Handles coming from the debugger are only turned into pointers when they land on a heap block inside the heap.
+static CLR_RT_HeapBlock *ValidateHeapBlockAddress(uintptr_t address)
+{
+    uintptr_t base = (uintptr_t)s_CLR_RT_Heap.m_location;
+
+    if (address >= base && (address - base) <= s_CLR_RT_Heap.m_size &&
+        (s_CLR_RT_Heap.m_size - (address - base)) >= sizeof(CLR_RT_HeapBlock) && (address % sizeof(CLR_UINT32)) == 0)
+    {
+        return (CLR_RT_HeapBlock *)address;
+    }
+
+    return nullptr;
+}
+
+#if UINTPTR_MAX > 0xFFFFFFFFu
+
+static const uintptr_t c_HeapBlockHandleBias = 4;
+
+static CLR_UINT32 HeapBlockToHandle(const void *ptr)
+{
+    if (ptr == nullptr)
+    {
+        return 0;
+    }
+
+    if (ptr == (const void *)-1)
+    {
+        return c_HeapBlockHandleSentinel;
+    }
+
+    uintptr_t base = (uintptr_t)s_CLR_RT_Heap.m_location;
+    uintptr_t address = (uintptr_t)ptr;
+
+    if (address < base || (address - base) > (uintptr_t)(c_HeapBlockHandleSentinel - 1 - c_HeapBlockHandleBias))
+    {
+        // outside the range that can be represented by a handle
+        ASSERT(false);
+        return 0;
+    }
+
+    return (CLR_UINT32)(address - base + c_HeapBlockHandleBias);
+}
+
+static CLR_RT_HeapBlock *HandleToHeapBlock(CLR_UINT32 handle)
+{
+    if (handle < c_HeapBlockHandleBias || handle == c_HeapBlockHandleSentinel)
+    {
+        return nullptr;
+    }
+
+    return ValidateHeapBlockAddress((uintptr_t)s_CLR_RT_Heap.m_location + (uintptr_t)handle - c_HeapBlockHandleBias);
+}
+
+#else
+
+static CLR_UINT32 HeapBlockToHandle(const void *ptr)
+{
+    // the (CLR_RT_HeapBlock *)-1 sentinel maps to c_HeapBlockHandleSentinel as is
+    return (CLR_UINT32)(uintptr_t)ptr;
+}
+
+static CLR_RT_HeapBlock *HandleToHeapBlock(CLR_UINT32 handle)
+{
+    if (handle == 0 || handle == c_HeapBlockHandleSentinel)
+    {
+        return nullptr;
+    }
+
+    return ValidateHeapBlockAddress((uintptr_t)handle);
+}
+
+#endif
+
+#endif // #if defined(NANOCLR_ENABLE_SOURCELEVELDEBUGGING)
+
 //--//
 
 void CLR_DBG_Debugger::Debugger_WaitForCommands()
@@ -1408,7 +1497,7 @@ bool CLR_DBG_Debugger::Debugging_Execution_BasePtr(WP_Message *msg)
 
     CLR_DBG_Commands::Debugging_Execution_BasePtr::Reply cmdReply;
 
-    cmdReply.m_EE = (CLR_UINT32)(size_t)&g_CLR_RT_ExecutionEngine;
+    cmdReply.m_EE = HeapBlockToHandle(&g_CLR_RT_ExecutionEngine);
 
     WP_ReplyToCommand(msg, true, false, &cmdReply, sizeof(CLR_DBG_Commands::Debugging_Execution_BasePtr::Reply));
 
@@ -1837,7 +1926,7 @@ static bool FillValues(
 
     memset(dst, 0, sizeof(*dst));
 
-    dst->m_referenceID = (CLR_UINT32)((reference != NULL) ? reference : ptr);
+    dst->m_referenceID = HeapBlockToHandle((reference != NULL) ? reference : ptr);
     dst->m_dt = ptr->DataType();
     dst->m_flags = ptr->DataFlags();
     dst->m_size = ptr->DataSize();
@@ -1883,7 +1972,7 @@ static bool FillValues(
 
             if (text != NULL)
             {
-                dst->m_charsInString = (CLR_UINT32)text;
+                dst->m_charsInString = HeapBlockToHandle(text);
                 dst->m_bytesInString = (CLR_UINT32)hal_strlen_s(text);
 
                 hal_strncpy_s(
@@ -1927,7 +2016,7 @@ static bool FillValues(
             break;
 
         case DATATYPE_ARRAY_BYREF:
-            dst->m_arrayref_referenceID = (CLR_UINT32)ptr->Array();
+            dst->m_arrayref_referenceID = HeapBlockToHandle(ptr->Array());
             dst->m_arrayref_index = ptr->ArrayIndex();
 
             break;
@@ -2844,7 +2933,7 @@ bool CLR_DBG_Debugger::Debugging_Value_GetField(WP_Message *msg)
     CLR_UINT32 offset;
 
     CLR_DBG_Commands::Debugging_Value_GetField *cmd = (CLR_DBG_Commands::Debugging_Value_GetField *)msg->m_payload;
-    CLR_RT_HeapBlock *blk = cmd->m_heapblock;
+    CLR_RT_HeapBlock *blk = HandleToHeapBlock(cmd->m_heapblock);
     CLR_RT_HeapBlock *reference = NULL;
     CLR_RT_TypeDef_Instance *pTD = NULL;
     CLR_RT_TypeDescriptor desc{};
@@ -2959,7 +3048,7 @@ bool CLR_DBG_Debugger::Debugging_Value_GetArray(WP_Message *msg)
     CLR_RT_HeapBlock ref;
     CLR_RT_TypeDef_Instance td{};
 
-    tmp.SetObjectReference(cmd->m_heapblock);
+    tmp.SetObjectReference(HandleToHeapBlock(cmd->m_heapblock));
 
     if (SUCCEEDED(ref.InitializeArrayReference(tmp, cmd->m_index)))
     {
@@ -3002,7 +3091,7 @@ bool CLR_DBG_Debugger::Debugging_Value_GetBlock(WP_Message *msg)
     NATIVE_PROFILE_CLR_DEBUGGER();
 
     CLR_DBG_Commands::Debugging_Value_GetBlock *cmd = (CLR_DBG_Commands::Debugging_Value_GetBlock *)msg->m_payload;
-    CLR_RT_HeapBlock *blk = cmd->m_heapblock;
+    CLR_RT_HeapBlock *blk = HandleToHeapBlock(cmd->m_heapblock);
 
     WP_ReplyToCommand(msg, g_CLR_DBG_Debugger->GetValue(msg, blk, NULL, NULL), false, NULL, 0);
 
@@ -3027,7 +3116,7 @@ bool CLR_DBG_Debugger::Debugging_Value_SetBlock(WP_Message *msg)
     NATIVE_PROFILE_CLR_DEBUGGER();
 
     CLR_DBG_Commands::Debugging_Value_SetBlock *cmd = (CLR_DBG_Commands::Debugging_Value_SetBlock *)msg->m_payload;
-    CLR_RT_HeapBlock *blk = cmd->m_heapblock;
+    CLR_RT_HeapBlock *blk = HandleToHeapBlock(cmd->m_heapblock);
 
     WP_ReplyToCommand(msg, SetBlockHelper(blk, (CLR_DataType)cmd->m_dt, cmd->m_builtinValue), false, NULL, 0);
 
@@ -3039,10 +3128,10 @@ bool CLR_DBG_Debugger::Debugging_Value_SetArray(WP_Message *msg)
     NATIVE_PROFILE_CLR_DEBUGGER();
 
     CLR_DBG_Commands::Debugging_Value_SetArray *cmd = (CLR_DBG_Commands::Debugging_Value_SetArray *)msg->m_payload;
-    CLR_RT_HeapBlock_Array *array = cmd->m_heapblock;
+    CLR_RT_HeapBlock_Array *array = (CLR_RT_HeapBlock_Array *)HandleToHeapBlock(cmd->m_heapblock);
     CLR_RT_HeapBlock tmp;
 
-    tmp.SetObjectReference(cmd->m_heapblock);
+    tmp.SetObjectReference(array);
 
     //
     // We can only set values in arrays of primitive types.
@@ -3355,8 +3444,8 @@ bool CLR_DBG_Debugger::Debugging_Value_Assign(WP_Message *msg)
     NATIVE_PROFILE_CLR_DEBUGGER();
 
     CLR_DBG_Commands::Debugging_Value_Assign *cmd = (CLR_DBG_Commands::Debugging_Value_Assign *)msg->m_payload;
-    CLR_RT_HeapBlock *blkDst = cmd->m_heapblockDst;
-    CLR_RT_HeapBlock *blkSrc = cmd->m_heapblockSrc;
+    CLR_RT_HeapBlock *blkDst = HandleToHeapBlock(cmd->m_heapblockDst);
+    CLR_RT_HeapBlock *blkSrc = HandleToHeapBlock(cmd->m_heapblockSrc);
 
     if (blkDst && FAILED(Assign_Helper(blkDst, blkSrc)))
     {
@@ -3686,10 +3775,11 @@ bool CLR_DBG_Debugger::Debugging_Resolve_VirtualMethod(WP_Message *msg)
     CLR_DBG_Commands::Debugging_Resolve_VirtualMethod::Reply cmdReply;
     CLR_RT_TypeDef_Index cls;
     CLR_RT_MethodDef_Index md;
+    CLR_RT_HeapBlock *obj = HandleToHeapBlock(cmd->m_obj);
 
     cmdReply.m_md.Clear();
 
-    if (SUCCEEDED(CLR_RT_TypeDescriptor::ExtractTypeIndexFromObject(*cmd->m_obj, cls)))
+    if (obj != NULL && SUCCEEDED(CLR_RT_TypeDescriptor::ExtractTypeIndexFromObject(*obj, cls)))
     {
         if (g_CLR_RT_EventCache.FindVirtualMethod(cls, cmd->m_md, md))
         {
