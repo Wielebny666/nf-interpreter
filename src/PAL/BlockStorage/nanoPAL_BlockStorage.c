@@ -152,6 +152,20 @@ bool BlockStorageStream_InitializeWithBlockStorageDevice(
         device = pDevice;
 
         deviceInfo = BlockStorageDevice_GetDeviceInfo(pDevice);
+
+        // Naming the device says which one to use, not where in it the usage
+        // begins. Without this the region and range indices are whatever the
+        // caller happened to leave in the stream, and the stream describes
+        // nothing that exists.
+        if (deviceInfo != NULL && !DeviceBlockInfo_FindNextUsageBlock(
+                                      deviceInfo,
+                                      blockUsage,
+                                      &stream->BaseAddress,
+                                      &stream->RegionIndex,
+                                      &stream->RangeIndex))
+        {
+            deviceInfo = NULL;
+        }
     }
     else
     {
@@ -159,7 +173,15 @@ bool BlockStorageStream_InitializeWithBlockStorageDevice(
         {
             device = g_BlockStorage.DeviceList[i];
 
-            deviceInfo = BlockStorageDevice_GetDeviceInfo(g_BlockStorage.DeviceList[i]);
+            if (device == NULL)
+            {
+                // empty slot: the device list is sized by TARGET_BLOCKSTORAGE_COUNT
+                // and a target may register fewer devices than that, or none at all
+                deviceInfo = NULL;
+                continue;
+            }
+
+            deviceInfo = BlockStorageDevice_GetDeviceInfo(device);
 
             if (DeviceBlockInfo_FindNextUsageBlock(
                     deviceInfo,
@@ -969,7 +991,20 @@ BlockStorageDevice *BlockStorageList_GetNextDevice(BlockStorageDevice *device)
 // // returns number of devices has been declared in the system
 unsigned int BlockStorageList_GetNumDevices()
 {
-    return TARGET_BLOCKSTORAGE_COUNT;
+    // The count of registered devices, not the capacity of the list. A target
+    // may register fewer than TARGET_BLOCKSTORAGE_COUNT, or none at all as a
+    // host build does, and callers walk the list this many times.
+    unsigned int count = 0;
+
+    for (int i = 0; i < TARGET_BLOCKSTORAGE_COUNT; i++)
+    {
+        if (g_BlockStorage.DeviceList[i] != NULL)
+        {
+            count++;
+        }
+    }
+
+    return count;
 }
 
 /////////////////////////////////////////////////////

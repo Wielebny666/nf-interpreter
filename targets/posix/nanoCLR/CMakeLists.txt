@@ -59,6 +59,7 @@ if(NANOCLR_POSIX_DEBUGGER)
         WireProtocol_HAL_Interface.cpp
         targetHAL_Capabilities.c
         targetHAL_Debugger.cpp
+        Target_BlockStorage_Simulated.cpp
     )
 else()
     list(APPEND NANOCLR_POSIX_EXTRA_SOURCES Target_BlockStorage.cpp)
