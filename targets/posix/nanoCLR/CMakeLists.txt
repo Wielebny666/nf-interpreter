@@ -67,9 +67,9 @@ endif()
 
 set(NANOCLR_POSIX_SOURCES
     ${NANOCLR_POSIX_EXTRA_SOURCES}
-    CLR_Debug_POSIX.cpp
     CLRStartup.cpp
     ConfigurationManager_POSIX_stub.cpp
+    DebuggerPort_POSIX.cpp
     FileStore_POSIX.cpp
     InteropAssemblies_POSIX.cpp
     Memory.cpp
@@ -152,6 +152,7 @@ set(NF_CLR_STARTUP_SRCS)
 set(NF_CLR_STUB_SRCS
     $<IF:$<BOOL:${NANOCLR_POSIX_DEBUGGER}>,${REPO_ROOT}/src/CLR/Debugger/Debugger.cpp,${REPO_ROOT}/src/CLR/Debugger/Debugger_stub.cpp>
     $<IF:$<BOOL:${NANOCLR_POSIX_DEBUGGER}>,${REPO_ROOT}/src/CLR/Messaging/Messaging.cpp,${REPO_ROOT}/src/CLR/Messaging/Messaging_stub.cpp>
+    ${REPO_ROOT}/src/CLR/Diagnostics/Info.cpp
     ${REPO_ROOT}/src/CLR/Diagnostics/Info_Safeprintf.cpp
     ${REPO_ROOT}/src/CLR/Diagnostics/Diagnostics_stub.cpp
     ${REPO_ROOT}/src/CLR/Core/Serialization/BinaryFormatter_stub.cpp

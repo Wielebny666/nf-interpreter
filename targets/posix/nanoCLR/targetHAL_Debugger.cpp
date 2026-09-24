@@ -13,20 +13,8 @@
 #include <nanoHAL_ReleaseInfo.h>
 #include <nanoPAL_BlockStorage.h>
 
-// There is no physical channel on a POSIX host: the transport is whatever the
-// managed host registers through the Wire Protocol callbacks, so the port
-// handles and memory ranges are all zero.
-HAL_SYSTEM_CONFIG HalSystemConfig = {
-    {true}, // HAL_DRIVER_CONFIG_HEADER Header
-
-    0,      // COM_HANDLE DebuggerPort
-    0,      // COM_HANDLE DebugTextPort
-    921600, // unsigned int USART_DefaultBaudRate
-    0,      // COM_HANDLE stdio
-
-    {0, 0}, // HAL_SYSTEM_MEMORY_CONFIG RAM1
-    {0, 0}, // HAL_SYSTEM_MEMORY_CONFIG FLASH
-};
+// HalSystemConfig lives in DebuggerPort_POSIX.cpp: debug text output needs it in
+// every build, not only when the debugger stack is enabled.
 
 // The debugger port is owned by the managed host, so the CLR must not tear it
 // down when a program exits.
