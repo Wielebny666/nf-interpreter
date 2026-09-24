@@ -102,7 +102,11 @@
 // #define NANOCLR_PROFILE_NEW_ALLOCATIONS
 // #define NANOCLR_TRACE_MEMORY_STATS
 // #define NANOCLR_FORCE_GC_BEFORE_EVERY_ALLOCATION
+// POSIX sets this from -DNANOCLR_VALIDATE_HEAP=<n> (NANO_POSIX_VALIDATE_HEAP preset
+// variable); do not clobber a value the build already picked.
+#if !defined(NANOCLR_VALIDATE_HEAP)
 #define NANOCLR_VALIDATE_HEAP NANOCLR_VALIDATE_HEAP_0_None
+#endif
 #endif
 
 //-o-//-o-//-o-//-o-//-o-//-o-//

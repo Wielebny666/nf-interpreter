@@ -1,0 +1,75 @@
+{
+    "version": 4,
+    "configurePresets": [
+        {
+            "name": "posix-base",
+            "hidden": true,
+            "generator": "Ninja",
+            "cacheVariables": {
+                "NANO_POSIX_ENABLE_SMOKE": "ON"
+            }
+        },
+        {
+            "name": "posix-x64",
+            "inherits": "posix-base",
+            "displayName": "POSIX x86-64 -> build/posix64 (RelWithDebInfo, primary)",
+            "description": "LP64 build, the target configuration. Object identities on the Wire Protocol are routed through a 64-bit-safe handle table (see EncodeDebuggerHandle/DecodeDebuggerHandle in Debugger.cpp), so this width carries the full debugger stack as well.",
+            "binaryDir": "${sourceDir}/../../build/posix64",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+            }
+        },
+        {
+            "name": "posix-x64-debug",
+            "inherits": "posix-x64",
+            "displayName": "POSIX x86-64 -> build/posix64-debug (Debug)",
+            "description": "Unoptimised LP64 build. Use when stepping through GC or interpreter code, where RelWithDebInfo reports locals as <optimized out>.",
+            "binaryDir": "${sourceDir}/../../build/posix64-debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "posix-x64-soak",
+            "inherits": "posix-x64-debug",
+            "displayName": "POSIX x86-64 -> build/posix64-soak (Debug, heap validation 3)",
+            "description": "Long-running configuration: unoptimised, with heap validation at level 3, which checks the heap around compaction and reports corruption at the operation that causes it instead of days later somewhere unrelated. Far too slow to measure with.",
+            "binaryDir": "${sourceDir}/../../build/posix64-soak",
+            "cacheVariables": {
+                "NANO_POSIX_VALIDATE_HEAP": "3"
+            }
+        },
+        {
+            "name": "posix-x64-debugger",
+            "inherits": "posix-x64-debug",
+            "displayName": "POSIX x86-64 -> build/posix64-wp (Debug + Wire Protocol debugger)",
+            "description": "Builds the Wire Protocol debugger stack. Pair with the harness option --networkport to expose it over TCP.",
+            "binaryDir": "${sourceDir}/../../build/posix64-wp",
+            "cacheVariables": {
+                "NANO_POSIX_ENABLE_DEBUGGER": "ON"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "posix-x64",
+            "displayName": "POSIX x86-64 -> build/posix64 (RelWithDebInfo, primary)",
+            "configurePreset": "posix-x64"
+        },
+        {
+            "name": "posix-x64-debug",
+            "displayName": "POSIX x86-64 -> build/posix64-debug (Debug)",
+            "configurePreset": "posix-x64-debug"
+        },
+        {
+            "name": "posix-x64-soak",
+            "displayName": "POSIX x86-64 -> build/posix64-soak (Debug, heap validation 3)",
+            "configurePreset": "posix-x64-soak"
+        },
+        {
+            "name": "posix-x64-debugger",
+            "displayName": "POSIX x86-64 -> build/posix64-wp (Debug + Wire Protocol debugger)",
+            "configurePreset": "posix-x64-debugger"
+        }
+    ]
+}
