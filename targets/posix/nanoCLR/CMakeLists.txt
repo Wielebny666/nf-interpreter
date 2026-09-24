@@ -11,10 +11,61 @@ set(REPO_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../../..)
 # TLS is not implemented yet and every secure session fails at setup.
 option(NANO_POSIX_ENABLE_NETWORK "Build System.Net over the host's BSD sockets." ON)
 
+# The Wire Protocol carries object identities as a fixed 32-bit field, which is
+# bit-identical to the pointer itself on a 32-bit target. On a 64-bit host that
+# would truncate a live address, so Debugger.cpp routes identities through a
+# small opaque handle table there instead.
+option(NANO_POSIX_ENABLE_DEBUGGER "Build the Wire Protocol debugger stack." OFF)
+
+if(NANO_POSIX_ENABLE_DEBUGGER)
+    set(NANOCLR_POSIX_DEBUGGER ON)
+    message(STATUS "nanoCLR POSIX: Wire Protocol debugger enabled")
+else()
+    set(NANOCLR_POSIX_DEBUGGER OFF)
+endif()
+
 # ─── POSIX-specific platform glue ────────────────────────────────────────────
 # main.cpp is NOT part of the shared library; it is built as a separate thin
 # test harness (nanoFramework.nanoCLR.test) that links against the .dylib.
+if(NANOCLR_POSIX_DEBUGGER)
+
+set(NF_CLR_DEBUGGER_SUPPORT_SRCS
+    ${REPO_ROOT}/src/CLR/Debugger/Debugger_full.cpp
+    ${REPO_ROOT}/src/HAL/nanoHAL_SystemInformation.cpp
+    ${REPO_ROOT}/src/PAL/BlockStorage/nanoPAL_BlockStorage.c
+)
+
+set(NF_CLR_WIREPROTOCOL_SRCS
+    ${REPO_ROOT}/src/CLR/WireProtocol/WireProtocol_App_Interface.c
+    ${REPO_ROOT}/src/CLR/WireProtocol/WireProtocol_HAL_Interface.c
+    ${REPO_ROOT}/src/CLR/WireProtocol/WireProtocol_Message.c
+    ${REPO_ROOT}/src/CLR/WireProtocol/WireProtocol_MonitorCommands.c
+)
+
+else()
+
+set(NF_CLR_DEBUGGER_SUPPORT_SRCS)
+set(NF_CLR_WIREPROTOCOL_SRCS)
+
+endif()
+
+if(NANOCLR_POSIX_DEBUGGER)
+    # The debugger needs the BlockStorageStream API from the shared PAL. That
+    # file also defines everything Target_BlockStorage.cpp stubs, so the two are
+    # mutually exclusive; with no devices registered the shared one behaves the
+    # same way, as a host with no storage.
+    list(APPEND NANOCLR_POSIX_EXTRA_SOURCES
+        HostLock.cpp
+        WireProtocol_HAL_Interface.cpp
+        targetHAL_Capabilities.c
+        targetHAL_Debugger.cpp
+    )
+else()
+    list(APPEND NANOCLR_POSIX_EXTRA_SOURCES Target_BlockStorage.cpp)
+endif()
+
 set(NANOCLR_POSIX_SOURCES
+    ${NANOCLR_POSIX_EXTRA_SOURCES}
     CLR_Debug_POSIX.cpp
     CLRStartup.cpp
     ConfigurationManager_POSIX_stub.cpp
@@ -28,7 +79,6 @@ set(NANOCLR_POSIX_SOURCES
     targetPAL_Events.cpp
     targetPAL_Time.cpp
     targetRandom.cpp
-    Target_BlockStorage.cpp
     Target_HAL.cpp
     Various.cpp
     WatchDog.cpp
@@ -99,8 +149,8 @@ set(NF_CLR_STARTUP_SRCS)
 
 # ─── Stubs (Debugger / Messaging / Diagnostics) ───────────────────────────────
 set(NF_CLR_STUB_SRCS
-    ${REPO_ROOT}/src/CLR/Debugger/Debugger_stub.cpp
-    ${REPO_ROOT}/src/CLR/Messaging/Messaging_stub.cpp
+    $<IF:$<BOOL:${NANOCLR_POSIX_DEBUGGER}>,${REPO_ROOT}/src/CLR/Debugger/Debugger.cpp,${REPO_ROOT}/src/CLR/Debugger/Debugger_stub.cpp>
+    $<IF:$<BOOL:${NANOCLR_POSIX_DEBUGGER}>,${REPO_ROOT}/src/CLR/Messaging/Messaging.cpp,${REPO_ROOT}/src/CLR/Messaging/Messaging_stub.cpp>
     ${REPO_ROOT}/src/CLR/Diagnostics/Info_Safeprintf.cpp
     ${REPO_ROOT}/src/CLR/Diagnostics/Diagnostics_stub.cpp
     ${REPO_ROOT}/src/CLR/Core/Serialization/BinaryFormatter_stub.cpp
@@ -243,6 +293,8 @@ list(APPEND NANOCLR_POSIX_SOURCES
     ${NF_CORLIB_SRCS}
     ${NF_CLR_STARTUP_SRCS}
     ${NF_CLR_STUB_SRCS}
+    ${NF_CLR_WIREPROTOCOL_SRCS}
+    ${NF_CLR_DEBUGGER_SUPPORT_SRCS}
     ${NF_SYSTEM_NET_SRCS}
     ${NF_SYSTEM_DEVICE_GPIO_SRCS}
     ${NF_SYSTEM_DEVICE_I2C_SRCS}
@@ -283,6 +335,7 @@ target_include_directories(
     ${REPO_ROOT}/src/CLR/Startup
     ${REPO_ROOT}/src/CLR/Diagnostics
     ${REPO_ROOT}/src/CLR/Debugger
+    ${REPO_ROOT}/src/CLR/WireProtocol
     ${REPO_ROOT}/src/CLR/Helpers/NanoRingBuffer
     ${REPO_ROOT}/src/CLR/Helpers/nanoprintf
     ${REPO_ROOT}/src/CLR/Helpers/Base64
@@ -325,6 +378,10 @@ set(NANOCLR_POSIX_COMMON_DEFINITIONS
     NANOCLR_PLATFORM_NAME="${NANOCLR_PLATFORM_NAME}"
 )
 
+if(NANOCLR_POSIX_DEBUGGER)
+    list(APPEND NANOCLR_POSIX_COMMON_DEFINITIONS NANOCLR_ENABLE_SOURCELEVELDEBUGGING=1)
+endif()
+
 target_compile_definitions(
     nanoFramework.nanoCLR
     PRIVATE
@@ -355,7 +412,15 @@ set_target_properties(
 
 # ─── Thin test harness (links against the shared library) ────────────────────
 if(NANO_POSIX_ENABLE_SMOKE)
-add_executable(nanoFramework.nanoCLR.test main.cpp)
+set(NANOCLR_TEST_SOURCES main.cpp)
+
+if(NANOCLR_POSIX_DEBUGGER)
+    # The transport belongs to the host, not to the CLR, exactly as it does
+    # on the targets where the managed nanoclr tool plays that role.
+    list(APPEND NANOCLR_TEST_SOURCES TcpWireProtocol.cpp)
+endif()
+
+add_executable(nanoFramework.nanoCLR.test ${NANOCLR_TEST_SOURCES})
 target_compile_features(nanoFramework.nanoCLR.test PRIVATE cxx_std_20)
 target_link_libraries(nanoFramework.nanoCLR.test PRIVATE nanoFramework.nanoCLR)
 target_include_directories(

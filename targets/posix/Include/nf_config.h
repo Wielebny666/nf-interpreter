@@ -22,6 +22,9 @@
 // ── nanoFramework features ────────────────────────────────────────────────────
 // Managed application debugging transport present.
 #define CONFIG_NF_FEATURE_DEBUGGER 1
+// CRC32 on Wire Protocol packets. The debugger client computes and checks
+// them, and derives whether to expect them from the ping reply flags.
+#define CONFIG_NF_WP_ENABLE_CRC32 1
 // System.Reflection API.
 #define CONFIG_NF_FEATURE_SUPPORT_REFLECTION 1
 // Binary serialization support.

@@ -9,6 +9,38 @@
 #include <WireProtocol.h>
 #include <WireProtocol_Message.h>
 
+// Mutual exclusion between the interpreter and the Wire Protocol thread.
+//
+// Debugger command handlers walk the thread list, stack frames and breakpoint
+// tables, and allocate their replies on the managed heap. They run on the Wire
+// Protocol thread, which on every target runs beside the interpreter
+// (targets/*/_common/WireProtocol_ReceiverThread.c) with nothing serialising the
+// two, so while the program runs the collector can be taking the same blocks
+// apart underneath and the CLR dies following a free-list link that holds
+// payload instead of a pointer.
+//
+// The interpreter holds the lock for one ScheduleThreads batch and drops it in
+// between; a command therefore runs only at the kind of safe point a device
+// intends. Scoping it there is deadlock-free because ScheduleThreads never waits
+// for the debugger - every WaitForDebugger and DebuggerLoop call sits outside it.
+//
+// Implemented in targets/posix/nanoCLR/HostLock.cpp. Only a POSIX host built
+// with the debugger stack takes it: a build with no debugger has no second
+// thread to exclude, so it must not pay for one - build/posix32, the
+// configuration the compaction measurements run on, compiles this away
+// entirely. The hazard is upstream-wide, but the device targets are not this
+// bench's to change.
+#if defined(PLATFORM_POSIX_HOST) && defined(NANOCLR_ENABLE_SOURCELEVELDEBUGGING)
+extern "C" void NanoCLR_HostLock_AcquireForDebugger();
+extern "C" void NanoCLR_HostLock_ReleaseForDebugger();
+#define NANOCLR_HOST_LOCK_ACQUIRE() NanoCLR_HostLock_AcquireForDebugger()
+#define NANOCLR_HOST_LOCK_RELEASE() NanoCLR_HostLock_ReleaseForDebugger()
+#else
+#define NANOCLR_HOST_LOCK_ACQUIRE()
+#define NANOCLR_HOST_LOCK_RELEASE()
+#endif
+
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 //--//
@@ -425,7 +457,14 @@ extern "C" uint8_t Messaging_ProcessPayload(WP_Message *msg)
         return false;
     }
 
+    // Every CLR debugger command funnels through here, so this is the one place
+    // that has to be exclusive with the interpreter.
+    NANOCLR_HOST_LOCK_ACQUIRE();
+
     bool retValue = g_CLR_DBG_Debugger->m_messaging->ProcessPayload(msg);
+
+    NANOCLR_HOST_LOCK_RELEASE();
+
     return retValue;
 }
 
