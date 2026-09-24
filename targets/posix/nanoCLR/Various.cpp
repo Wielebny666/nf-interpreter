@@ -16,6 +16,12 @@
 #include <nanoHAL.h>
 #include <nanoPAL_Events.h>
 
+#if defined(NANOCLR_POSIX_SOCKETS)
+// defined in Sockets_POSIX.cpp
+bool Network_Initialize();
+bool Network_Uninitialize();
+#endif
+
 // Forward declaration — defined in CLRStartup.cpp.
 extern "C" void ClrExit();
 
@@ -148,11 +154,17 @@ void nanoHAL_Initialize()
     HAL_CONTINUATION::InitializeList();
     HAL_COMPLETION::InitializeList();
     Events_Initialize();
+#if defined(NANOCLR_POSIX_SOCKETS)
+    Network_Initialize();
+#endif
 }
 
 void nanoHAL_Uninitialize(bool isPoweringDown)
 {
     (void)isPoweringDown;
+#if defined(NANOCLR_POSIX_SOCKETS)
+    Network_Uninitialize();
+#endif
     Events_Uninitialize();
     HAL_CONTINUATION::Uninitialize();
     HAL_COMPLETION::Uninitialize();

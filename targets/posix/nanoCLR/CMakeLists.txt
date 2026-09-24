@@ -6,6 +6,11 @@
 # Convenience alias - repo root is three levels up from targets/posix/nanoCLR
 set(REPO_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../../..)
 
+# System.Net on top of the host's BSD sockets. The socket driver, the interface
+# configuration and the in-memory configuration blocks are all in this target;
+# TLS is not implemented yet and every secure session fails at setup.
+option(NANO_POSIX_ENABLE_NETWORK "Build System.Net over the host's BSD sockets." ON)
+
 # ─── POSIX-specific platform glue ────────────────────────────────────────────
 # main.cpp is NOT part of the shared library; it is built as a separate thin
 # test harness (nanoFramework.nanoCLR.test) that links against the .dylib.
@@ -103,6 +108,28 @@ set(NF_CLR_STUB_SRCS
     ${REPO_ROOT}/src/CLR/Helpers/NanoRingBuffer/nanoRingBuffer.c
     ${REPO_ROOT}/src/CLR/Helpers/Base64/base64.c
 )
+
+# ─── System.Net ─────────────────────────────────────────────────────────────────
+if(NANO_POSIX_ENABLE_NETWORK)
+    set(NF_SYSTEM_NET_SRCS
+        ${REPO_ROOT}/src/DeviceInterfaces/System.Net/sys_net_native.cpp
+        ${REPO_ROOT}/src/DeviceInterfaces/System.Net/sys_net_native_System_Net_Sockets_NativeSocket.cpp
+        ${REPO_ROOT}/src/DeviceInterfaces/System.Net/sys_net_native_System_Net_IPAddress.cpp
+        ${REPO_ROOT}/src/DeviceInterfaces/System.Net/sys_net_native_System_Net_NetworkInformation_NetworkInterface.cpp
+        ${REPO_ROOT}/src/DeviceInterfaces/System.Net/sys_net_native_System_Net_NetworkInformation_IPGlobalProperties.cpp
+        ${REPO_ROOT}/src/DeviceInterfaces/System.Net/sys_net_native_System_Net_NetworkInformation_Wireless80211Configuration.cpp
+        ${REPO_ROOT}/src/DeviceInterfaces/System.Net/sys_net_native_System_Net_NetworkInformation_WirelessAPConfiguration.cpp
+        ${REPO_ROOT}/src/DeviceInterfaces/System.Net/sys_net_native_System_Security_Cryptography_X509Certificates_X509Certificate.cpp
+        ${REPO_ROOT}/src/DeviceInterfaces/System.Net/sys_net_native_System_Security_Cryptography_X509Certificates_X509Certificate2.cpp
+        ${REPO_ROOT}/src/DeviceInterfaces/System.Net/sys_net_native_System_Net_Security_SslNative.cpp
+        ${REPO_ROOT}/src/DeviceInterfaces/System.Net/sys_net_native_System_Net_Security_CertificateManager.cpp
+        NetworkConfiguration_POSIX.cpp
+        Sockets_POSIX.cpp
+        Ssl_POSIX_stub.cpp
+    )
+else()
+    set(NF_SYSTEM_NET_SRCS)
+endif()
 
 # ─── System.Device.Gpio ──────────────────────────────────────────────────────────
 set(NF_SYSTEM_DEVICE_GPIO_SRCS
@@ -206,11 +233,17 @@ set(NF_HAL_PAL_STUB_SRCS
     ${REPO_ROOT}/src/PAL/nanoPAL_Network_stubs.cpp
 )
 
+if(NANO_POSIX_ENABLE_NETWORK)
+    # the driver in Sockets_POSIX.cpp replaces the weak no-op network PAL
+    list(REMOVE_ITEM NF_HAL_PAL_STUB_SRCS ${REPO_ROOT}/src/PAL/nanoPAL_Network_stubs.cpp)
+endif()
+
 list(APPEND NANOCLR_POSIX_SOURCES
     ${NF_CLR_CORE_SRCS}
     ${NF_CORLIB_SRCS}
     ${NF_CLR_STARTUP_SRCS}
     ${NF_CLR_STUB_SRCS}
+    ${NF_SYSTEM_NET_SRCS}
     ${NF_SYSTEM_DEVICE_GPIO_SRCS}
     ${NF_SYSTEM_DEVICE_I2C_SRCS}
     ${NF_SYSTEM_DEVICE_SPI_SRCS}
@@ -263,6 +296,7 @@ target_include_directories(
     ${REPO_ROOT}/src/System.Runtime.Serialization
     ${REPO_ROOT}/src/nanoFramework.ResourceManager
     ${REPO_ROOT}/src/nanoFramework.System.IO.Hashing
+    ${REPO_ROOT}/src/DeviceInterfaces/System.Net
     ${REPO_ROOT}/src/System.Device.Gpio
     ${REPO_ROOT}/src/System.Device.I2c
     ${REPO_ROOT}/src/System.Device.Spi
@@ -295,6 +329,7 @@ target_compile_definitions(
     nanoFramework.nanoCLR
     PRIVATE
     ${NANOCLR_POSIX_COMMON_DEFINITIONS}
+    $<$<BOOL:${NANO_POSIX_ENABLE_NETWORK}>:NANOCLR_POSIX_SOCKETS=1>
     NANO_POSIX_ENABLE_SMOKE=$<BOOL:${NANO_POSIX_ENABLE_SMOKE}>
 )
 

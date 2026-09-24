@@ -310,7 +310,9 @@ HRESULT Library_sys_net_native_System_Net_NetworkInformation_NetworkInterface::
     NATIVE_PROFILE_CLR_NETWORK();
     NANOCLR_HEADER();
 
-    CLR_UINT64 address;
+    // SOCK_IPV4AddressFromString takes uint64_t*, which is a narrower type than
+    // CLR_UINT64 on an LP64 host (unsigned long vs unsigned long long).
+    uint64_t address;
 
     LPCSTR ipString = stack.Arg0().RecoverString();
 

@@ -14,6 +14,16 @@
 #include <nanoPAL_FileSystem.h>
 #include <nanoPAL_Time.h>
 
+#if defined(NANOCLR_POSIX_SOCKETS)
+// The shared socket declarations take their locking from the target. The host
+// driver serialises on its own, so there is nothing to lock here.
+#define GLOBAL_LOCK_SOCKETS(x)
+// the shared header spells a string parameter with the Windows name
+typedef const char *LPCSTR;
+#include <nanoHAL_ConfigurationManager.h>
+#include <nanoPAL_Sockets.h>
+#endif
+
 // hal_strlen_s - mapped to strlen on all non-VIRTUAL_DEVICE builds
 #include <string.h>
 #define hal_strlen_s(str) strlen(str)
