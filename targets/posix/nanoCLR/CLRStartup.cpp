@@ -438,15 +438,23 @@ struct Settings
 
     void Cleanup()
     {
-        CLR_RT_ExecutionEngine::DeleteInstance();
+        // Tearing down an execution engine that was never brought up walks
+        // uninitialised linked lists and segfaults. That path is reached
+        // whenever the process exits before Initialize(): --help, a failed
+        // assembly load, a bad command line. Assemblies are still released
+        // below, since they are loaded before the engine starts.
+        if (m_fInitialized)
+        {
+            CLR_RT_ExecutionEngine::DeleteInstance();
 
-        memset(&g_CLR_RT_ExecutionEngine, 0, sizeof(g_CLR_RT_ExecutionEngine));
-        memset(&g_CLR_RT_WellKnownTypes, 0, sizeof(g_CLR_RT_WellKnownTypes));
-        memset(&g_CLR_RT_WellKnownMethods, 0, sizeof(g_CLR_RT_WellKnownMethods));
-        memset(&g_CLR_RT_TypeSystem, 0, sizeof(g_CLR_RT_TypeSystem));
-        memset(&g_CLR_RT_EventCache, 0, sizeof(g_CLR_RT_EventCache));
-        memset(&g_CLR_RT_GarbageCollector, 0, sizeof(g_CLR_RT_GarbageCollector));
-        memset(&g_CLR_HW_Hardware, 0, sizeof(g_CLR_HW_Hardware));
+            memset(&g_CLR_RT_ExecutionEngine, 0, sizeof(g_CLR_RT_ExecutionEngine));
+            memset(&g_CLR_RT_WellKnownTypes, 0, sizeof(g_CLR_RT_WellKnownTypes));
+            memset(&g_CLR_RT_WellKnownMethods, 0, sizeof(g_CLR_RT_WellKnownMethods));
+            memset(&g_CLR_RT_TypeSystem, 0, sizeof(g_CLR_RT_TypeSystem));
+            memset(&g_CLR_RT_EventCache, 0, sizeof(g_CLR_RT_EventCache));
+            memset(&g_CLR_RT_GarbageCollector, 0, sizeof(g_CLR_RT_GarbageCollector));
+            memset(&g_CLR_HW_Hardware, 0, sizeof(g_CLR_HW_Hardware));
+        }
 
         for (auto &it : m_assemblies)
             delete it.second;
