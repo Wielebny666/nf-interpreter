@@ -10,13 +10,15 @@ set(REPO_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../../..)
 # main.cpp is NOT part of the shared library; it is built as a separate thin
 # test harness (nanoFramework.nanoCLR.test) that links against the .dylib.
 set(NANOCLR_POSIX_SOURCES
+    CLR_Debug_POSIX.cpp
     CLRStartup.cpp
+    ConfigurationManager_POSIX_stub.cpp
     FileStore_POSIX.cpp
+    InteropAssemblies_POSIX.cpp
     Memory.cpp
     nanoCLR_native_posix.cpp
     platform_heap.cpp
     posix_headers_shim_test.cpp
-    posix_stubs.cpp
     targetHAL_Time.cpp
     targetPAL_Events.cpp
     targetPAL_Time.cpp
@@ -25,6 +27,7 @@ set(NANOCLR_POSIX_SOURCES
     Target_HAL.cpp
     Various.cpp
     WatchDog.cpp
+    WireProtocol_POSIX_stub.cpp
 )
 
 # ─── CLR Core ─────────────────────────────────────────────────────────────────
