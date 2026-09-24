@@ -838,11 +838,25 @@ bool CLR_RT_MethodDef_Instance::InitializeFromIndex(const CLR_RT_MethodDef_Index
     NATIVE_PROFILE_CLR_CORE();
     if (NANOCLR_INDEX_IS_VALID(idx))
     {
-        m_data = idx.m_data;
-        m_assm = g_CLR_RT_TypeSystem.m_assemblies[Assembly() - 1];
-        m_target = m_assm->GetMethodDef(Method());
+        CLR_IDX assemblyIdx = (CLR_IDX)(idx.m_data >> 16);
 
-        return true;
+        if (assemblyIdx >= 1 && assemblyIdx <= CLR_RT_TypeSystem::c_MaxAssemblies)
+        {
+            CLR_RT_Assembly *assm = g_CLR_RT_TypeSystem.m_assemblies[assemblyIdx - 1];
+
+            // The index comes off the wire from a debugger client, which can hold a stale
+            // reference to an assembly that has since been unloaded or was never deployed
+            // to this session - trust it only once it has been checked against what is
+            // actually loaded, rather than dereferencing whatever the slot holds.
+            if (assm != NULL)
+            {
+                m_data = idx.m_data;
+                m_assm = assm;
+                m_target = m_assm->GetMethodDef(Method());
+
+                return true;
+            }
+        }
     }
 
     m_data = 0;
