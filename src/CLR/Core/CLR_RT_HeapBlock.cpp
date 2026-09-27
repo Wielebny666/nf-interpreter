@@ -1246,6 +1246,10 @@ CLR_UINT32 CLR_RT_HeapBlock::GetAtomicDataUsedBytes() const
             return 8;
             break;
 
+        // only the reflection index is set; on a 64-bit host the rest of the atomic data is not part of the value
+        case DATATYPE_REFLECTION:
+            return sizeof(CLR_RT_ReflectionDef_Index);
+
         // Default full size of CLR_RT_HeapBlock_AtomicData
         default:
             return sizeof(CLR_RT_HeapBlock_AtomicData);
