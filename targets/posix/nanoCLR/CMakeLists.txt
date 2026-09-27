@@ -17,6 +17,17 @@ option(NANO_POSIX_ENABLE_NETWORK "Build System.Net over the host's BSD sockets."
 # small opaque handle table there instead.
 option(NANO_POSIX_ENABLE_DEBUGGER "Build the Wire Protocol debugger stack." OFF)
 
+# Heap validation level, 0 to 4. 0 is the production setting and what the
+# measurement builds use. 3 and 4 check the heap around compaction and catch
+# corruption at the operation that causes it rather than days later, which is
+# what a soak run wants. They cost a lot of time, so never measure with them on.
+set(NANO_POSIX_VALIDATE_HEAP "0" CACHE STRING "Heap validation level (0-4).")
+set_property(CACHE NANO_POSIX_VALIDATE_HEAP PROPERTY STRINGS 0 1 2 3 4)
+
+if(NOT NANO_POSIX_VALIDATE_HEAP MATCHES "^[0-4]$")
+    message(FATAL_ERROR "NANO_POSIX_VALIDATE_HEAP has to be 0, 1, 2, 3 or 4.")
+endif()
+
 if(NANO_POSIX_ENABLE_DEBUGGER)
     set(NANOCLR_POSIX_DEBUGGER ON)
     message(STATUS "nanoCLR POSIX: Wire Protocol debugger enabled")
@@ -372,6 +383,7 @@ endif()
 # Shared compile definitions used by both the library and the test harness.
 set(NANOCLR_POSIX_COMMON_DEFINITIONS
     PLATFORM_POSIX_HOST=1
+    NANOCLR_VALIDATE_HEAP=${NANO_POSIX_VALIDATE_HEAP}
     NANOCLR_HOST_POSIX=1
     NANOCLR_HOST_APPLE=${NANOCLR_HOST_APPLE}
     NANOCLR_HOST_LINUX=${NANOCLR_HOST_LINUX}
