@@ -48,6 +48,50 @@
             "cacheVariables": {
                 "NANO_POSIX_ENABLE_DEBUGGER": "ON"
             }
+        },
+        {
+            "name": "posix-x86",
+            "inherits": "posix-base",
+            "displayName": "POSIX i386 -> build/posix32 (RelWithDebInfo)",
+            "description": "ILP32 build via -m32. Gives the 12-byte CLR_RT_HeapBlock the embedded ARM targets use, so heap layout and GC behaviour match a device. Needs gcc/g++ multilib and linux-libc-dev:i386.",
+            "binaryDir": "${sourceDir}/../../build/posix32",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "CMAKE_C_FLAGS": "-m32",
+                "CMAKE_CXX_FLAGS": "-m32",
+                "CMAKE_EXE_LINKER_FLAGS": "-m32",
+                "CMAKE_SHARED_LINKER_FLAGS": "-m32"
+            }
+        },
+        {
+            "name": "posix-x86-debug",
+            "inherits": "posix-x86",
+            "displayName": "POSIX i386 -> build/posix32-debug (Debug)",
+            "description": "Unoptimised ILP32 build. Use when stepping through GC or interpreter code, where RelWithDebInfo reports locals as <optimized out>.",
+            "binaryDir": "${sourceDir}/../../build/posix32-debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "posix-x86-soak",
+            "inherits": "posix-x86-debug",
+            "displayName": "POSIX i386 -> build/posix32-soak (Debug, heap validation 3)",
+            "description": "Long-running configuration: unoptimised, with heap validation at level 3, which checks the heap around compaction and reports corruption at the operation that causes it instead of days later somewhere unrelated. Far too slow to measure with.",
+            "binaryDir": "${sourceDir}/../../build/posix32-soak",
+            "cacheVariables": {
+                "NANO_POSIX_VALIDATE_HEAP": "3"
+            }
+        },
+        {
+            "name": "posix-x86-debugger",
+            "inherits": "posix-x86-debug",
+            "displayName": "POSIX i386 -> build/posix32-wp (Debug + Wire Protocol debugger)",
+            "description": "Builds the Wire Protocol debugger stack. Pair with the harness option --networkport to expose it over TCP.",
+            "binaryDir": "${sourceDir}/../../build/posix32-wp",
+            "cacheVariables": {
+                "NANO_POSIX_ENABLE_DEBUGGER": "ON"
+            }
         }
     ],
     "buildPresets": [
@@ -70,6 +114,26 @@
             "name": "posix-x64-debugger",
             "displayName": "POSIX x86-64 -> build/posix64-wp (Debug + Wire Protocol debugger)",
             "configurePreset": "posix-x64-debugger"
+        },
+        {
+            "name": "posix-x86",
+            "displayName": "POSIX i386 -> build/posix32 (RelWithDebInfo)",
+            "configurePreset": "posix-x86"
+        },
+        {
+            "name": "posix-x86-debug",
+            "displayName": "POSIX i386 -> build/posix32-debug (Debug)",
+            "configurePreset": "posix-x86-debug"
+        },
+        {
+            "name": "posix-x86-soak",
+            "displayName": "POSIX i386 -> build/posix32-soak (Debug, heap validation 3)",
+            "configurePreset": "posix-x86-soak"
+        },
+        {
+            "name": "posix-x86-debugger",
+            "displayName": "POSIX i386 -> build/posix32-wp (Debug + Wire Protocol debugger)",
+            "configurePreset": "posix-x86-debugger"
         }
     ]
 }
