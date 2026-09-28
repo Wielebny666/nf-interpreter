@@ -36,6 +36,18 @@
         }                                                                                                              \
     } while (0)
 
+// The header is the 32-bit data id at the start of the block; heap walks read nothing else of a free block.
+#define NANOCLR_HEAP_ANNOTATE_QUARANTINE(ptr, blocks)                                                                  \
+    (void)VALGRIND_MAKE_MEM_NOACCESS(                                                                                  \
+        (CLR_UINT8 *)(ptr) + sizeof(CLR_UINT32),                                                                       \
+        (size_t)(blocks) * sizeof(CLR_RT_HeapBlock) - sizeof(CLR_UINT32))
+
+#define NANOCLR_HEAP_ANNOTATE_RELINK(ptr) (void)VALGRIND_MAKE_MEM_UNDEFINED((ptr), sizeof(CLR_RT_HeapBlock))
+
+bool NanoCLR_HeapQuarantine_Enabled();
+
+#define NANOCLR_HEAP_QUARANTINE_ENABLED() NanoCLR_HeapQuarantine_Enabled()
+
 void NanoCLR_HeapStress_BeforeAllocation(CLR_UINT32 flags);
 
 #define NANOCLR_HEAP_STRESS_BEFORE_ALLOCATION(flags) NanoCLR_HeapStress_BeforeAllocation(flags)

@@ -234,6 +234,11 @@ void CLR_RT_HeapCluster::RecoverFromGC()
             CLR_RT_HeapBlock_Node *next = ptr;
             CLR_UINT32 lenTot = 0;
 
+            // With quarantine, the objects that die in this collection form runs of their own and stay out of the
+            // free list until the next one, so a stale pointer to them still reaches inaccessible memory instead
+            // of whatever the allocator puts there next.
+            const bool quarantine = NANOCLR_HEAP_QUARANTINE_ENABLED() && ptr->DataType() != DATATYPE_FREEBLOCK;
+
             do
             {
                 ValidateBlock(next);
@@ -248,7 +253,8 @@ void CLR_RT_HeapCluster::RecoverFromGC()
                 next += len;
                 lenTot += len;
 
-            } while (next < end && next->IsAlive() == false);
+            } while (next < end && next->IsAlive() == false &&
+                     (!NANOCLR_HEAP_QUARANTINE_ENABLED() || (next->DataType() != DATATYPE_FREEBLOCK) == quarantine));
 
 #if defined(NANOCLR_PROFILE_NEW_ALLOCATIONS)
 
@@ -259,6 +265,19 @@ void CLR_RT_HeapCluster::RecoverFromGC()
             }
 
 #endif
+            if (quarantine)
+            {
+                // Pinned, like every free block, so compaction leaves it where it is.
+                ptr->SetDataId(CLR_RT_HEAPBLOCK_RAW_ID(DATATYPE_FREEBLOCK, CLR_RT_HeapBlock::HB_Pinned, lenTot));
+
+                NANOCLR_HEAP_ANNOTATE_QUARANTINE(ptr, lenTot);
+
+                ptr = next;
+                continue;
+            }
+
+            NANOCLR_HEAP_ANNOTATE_RELINK(ptr);
+
             ptr->SetDataId(CLR_RT_HEAPBLOCK_RAW_ID(DATATYPE_FREEBLOCK, CLR_RT_HeapBlock::HB_Pinned, lenTot));
 
             //

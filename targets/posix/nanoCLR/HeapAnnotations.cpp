@@ -13,41 +13,72 @@
 // Set while this file runs a GC or the self-test itself, both of which allocate.
 static bool s_running = false;
 
+// Value of a numeric environment variable, or 0 when it is unset, not a number or not positive.
+static unsigned long PositiveFromEnv(const char *name)
+{
+    if (const char *fromEnv = std::getenv(name))
+    {
+        const long value = std::strtol(fromEnv, nullptr, 10);
+
+        if (value > 0)
+        {
+            return (unsigned long)value;
+        }
+    }
+
+    return 0;
+}
+
 // NANOCLR_GC_STRESS=<n> runs a full GC before every n-th managed allocation, the same GC an allocation runs when the
 // heap is full. An object that native code reaches without rooting it is then freed long before a real application
 // would fill the heap, and memcheck reports the access. Unset or 0 leaves allocation alone.
 static unsigned long GcStressInterval()
 {
-    static long cached = -1;
+    static const unsigned long interval = PositiveFromEnv("NANOCLR_GC_STRESS");
+
+    return interval;
+}
+
+// NANOCLR_COMPACT_STRESS=<n> schedules a heap compaction after every n-th of those collections. The CLR runs it at its
+// next safe point, exactly like a compaction it schedules itself, so live objects move and native code that kept a raw
+// pointer to one across calls is left holding an address memcheck reports.
+static unsigned long CompactStressInterval()
+{
+    static const unsigned long interval = PositiveFromEnv("NANOCLR_COMPACT_STRESS");
+
+    return interval;
+}
+
+// NANOCLR_HEAP_QUARANTINE=1 keeps the objects that die in a collection out of the free list until the next one, with
+// everything but their header inaccessible. A stale pointer then keeps reaching memory memcheck reports, instead of
+// an object the allocator has put there since. It needs more heap; raise NANOCLR_HEAP_SIZE_MB if allocations fail.
+bool NanoCLR_HeapQuarantine_Enabled()
+{
+    static int cached = -1;
 
     if (cached < 0)
     {
-        cached = 0;
+        const char *fromEnv = std::getenv("NANOCLR_HEAP_QUARANTINE");
 
-        if (const char *fromEnv = std::getenv("NANOCLR_GC_STRESS"))
-        {
-            const long interval = std::strtol(fromEnv, nullptr, 10);
-
-            if (interval > 0)
-            {
-                cached = interval;
-            }
-        }
+        cached = (fromEnv != nullptr && std::strtol(fromEnv, nullptr, 10) != 0) ? 1 : 0;
     }
 
-    return (unsigned long)cached;
+    return cached != 0;
 }
 
-// NANOCLR_HEAP_SELFTEST=1 plants two known heap errors at the first managed allocation, so a run under valgrind shows
-// whether the annotations work: a read of an object the GC has freed, and a decision taken on object memory nothing
-// has written yet. Both are reported from this file; anything else in the log is a finding of its own.
+// NANOCLR_HEAP_SELFTEST=1 plants known heap errors at the first managed allocation, so a run under valgrind shows
+// whether the annotations work. All of them are reported from this file, between two markers that also state how many
+// to expect; anything else in the log is a finding of its own.
 static void RunSelfTest()
 {
-    std::fprintf(stderr, "nanoCLR heap self-test: planting a read after free and an uninitialised read\n");
-    VALGRIND_PRINTF("nanoCLR heap self-test: expect 'Invalid read' and 'Conditional jump' from HeapAnnotations.cpp\n");
+    const bool quarantine = NanoCLR_HeapQuarantine_Enabled();
+    const int expected = quarantine ? 4 : 3;
 
-    // Nothing roots 'unrooted', so the GC frees the string and the text past its first heap block becomes
-    // inaccessible.
+    std::fprintf(stderr, "nanoCLR heap self-test: planting %d known heap errors\n", expected);
+    VALGRIND_PRINTF("nanoCLR heap self-test: expect %d errors from HeapAnnotations.cpp\n", expected);
+
+    // 1. Read after free. Nothing roots 'unrooted', so the GC frees the string and the text past its first heap block
+    // becomes inaccessible.
     CLR_RT_HeapBlock unrooted;
     unrooted.SetObjectReference(nullptr);
 
@@ -55,15 +86,24 @@ static void RunSelfTest()
             unrooted,
             "nanoCLR heap self-test: this string is freed by the GC before it is read back")))
     {
+        const CLR_UINT8 *object = (const CLR_UINT8 *)unrooted.Dereference();
         const char *text = unrooted.RecoverString();
 
         g_CLR_RT_ExecutionEngine.PerformGarbageCollection();
 
         volatile char freed = text[50];
         (void)freed;
+
+        // 2. Only with quarantine: the first heap block of a freed object, which a free-list node would otherwise
+        // keep accessible.
+        if (quarantine)
+        {
+            volatile CLR_UINT8 field = object[sizeof(CLR_RT_HeapBlock) - 1];
+            (void)field;
+        }
     }
 
-    // A new object is uninitialised until the CLR writes it; this one is never written.
+    // 3. A new object is uninitialised until the CLR writes it; this one is never written.
     CLR_RT_HeapBlock *fresh = g_CLR_RT_ExecutionEngine.ExtractHeapBlocksForObjects(DATATYPE_I4, 0, 2);
 
     if (fresh != nullptr)
@@ -74,6 +114,18 @@ static void RunSelfTest()
         {
             std::fprintf(stderr, "nanoCLR heap self-test: uninitialised byte happened to be 0x5A\n");
         }
+    }
+
+    // 4. Read after release to the event cache, the way a stack frame or a lock request is released.
+    CLR_RT_HeapBlock *node =
+        g_CLR_RT_EventCache.Extract_Node(DATATYPE_OBJECT, CLR_RT_HeapBlock::HB_InitializeToZero, 3);
+
+    if (node != nullptr)
+    {
+        g_CLR_RT_EventCache.Append_Node(node);
+
+        volatile CLR_UINT8 released = ((const CLR_UINT8 *)&node[1])[0];
+        (void)released;
     }
 
     VALGRIND_PRINTF("nanoCLR heap self-test: done\n");
@@ -89,6 +141,7 @@ static bool SelfTestRequested()
 void NanoCLR_HeapStress_BeforeAllocation(CLR_UINT32 flags)
 {
     static unsigned long allocations = 0;
+    static unsigned long collections = 0;
     static bool selfTestDone = false;
 
     // PerformGarbageCollection allocates the finalizer thread after the GC itself, so without the guard every
@@ -118,5 +171,12 @@ void NanoCLR_HeapStress_BeforeAllocation(CLR_UINT32 flags)
         s_running = true;
         g_CLR_RT_ExecutionEngine.PerformGarbageCollection();
         s_running = false;
+
+        const unsigned long compactInterval = CompactStressInterval();
+
+        if (compactInterval != 0 && (++collections % compactInterval) == 0)
+        {
+            CLR_EE_SET(Compaction_Pending);
+        }
     }
 }

@@ -1,6 +1,6 @@
 # Checking the managed heap with valgrind
 
-A build of the POSIX host that tells valgrind's memcheck what lives inside the managed heap, plus a GC stress mode, a self-test and a stress application that exercises as much of the CLR's native code as possible.
+A build of the POSIX host that tells valgrind's memcheck what lives inside the managed heap, plus GC and compaction stress modes, a quarantine for freed objects, a self-test and a stress application that exercises as much of the CLR's native code as possible.
 
 ## What it finds
 
@@ -12,13 +12,15 @@ With `NANO_POSIX_HEAP_MEMCHECK` the allocator and the GC keep memcheck informed:
 |---|---|
 | new object | uninitialised until the CLR writes it |
 | free block | first heap block (header and free-list links) accessible, the rest **inaccessible** |
+| block parked in the event cache (stack frames, lock requests, wait objects, sub-threads...) | like a free block; uninitialised again when the cache hands it out |
+| object freed in the last GC, with quarantine on | only the 4-byte header accessible, kept out of the free list until the next GC |
 | object moved by compaction | its initialised state moves with the data |
 
 That makes two kinds of bug in the CLR's native code visible:
 
 | Bug | memcheck report |
 |---|---|
-| native code uses an object after the GC freed it, because nothing rooted it (missing `CLR_RT_ProtectFromGC`, raw pointer kept across an allocation) | `Invalid read` / `Invalid write` |
+| native code uses an object after the GC freed it, because nothing rooted it (missing `CLR_RT_ProtectFromGC`, raw pointer kept across an allocation), or an event-cache block after releasing it | `Invalid read` / `Invalid write` |
 | a decision taken on object memory nothing has written, for example the GC marking through an uninitialised stack-frame slot or field | `Conditional jump or move depends on uninitialised value(s)`, `Use of uninitialised value` |
 
 Errors in native memory outside the managed heap are reported as with any valgrind run.
@@ -41,20 +43,24 @@ The binary also runs without valgrind. The annotations are then a few no-op inst
 
 | Variable | Effect |
 |---|---|
-| `NANOCLR_HEAP_SELFTEST=1` | plant two known heap errors at the first managed allocation (see [Self-test](#self-test)) |
+| `NANOCLR_HEAP_SELFTEST=1` | plant known heap errors at the first managed allocation (see [Self-test](#self-test)) |
 | `NANOCLR_GC_STRESS=<n>` | run a full GC before every n-th managed allocation (see [GC stress](#gc-stress)) |
+| `NANOCLR_COMPACT_STRESS=<n>` | schedule a heap compaction after every n-th stress GC (see [Compaction stress](#compaction-stress)) |
+| `NANOCLR_HEAP_QUARANTINE=1` | keep freed objects out of the free list until the next GC (see [Quarantine](#quarantine)) |
 | `NANOCLR_HEAP_SIZE_MB=<n>` | managed heap size, 10 MB by default |
 
 ## Self-test
 
-The self-test checks that the annotations work: it plants two known errors in the heap and expects memcheck to report exactly those. Run it after changing the allocator (`CLR_RT_HeapCluster`), the GC, compaction or the hooks themselves, and after updating valgrind.
+The self-test checks that the annotations work: it plants known errors in the heap and expects memcheck to report exactly those. Run it after changing the allocator (`CLR_RT_HeapCluster`), the GC, compaction or the hooks themselves, and after updating valgrind.
 
 At the first managed allocation, `RunSelfTest()` in [nanoCLR/HeapAnnotations.cpp](nanoCLR/HeapAnnotations.cpp):
 
 1. **Read after free.** Creates a string held only in a native `CLR_RT_HeapBlock` the GC cannot see, runs a GC, which frees the string, and reads one of its characters back. The text lies past the first heap block of the object, so it is inaccessible once freed. Expected: `Invalid read of size 1`.
-2. **Uninitialised object memory.** Allocates an object without zeroing it, never writes it, and branches on its first byte. Expected: `Conditional jump or move depends on uninitialised value(s)`, with the origin `created by a client request at CLR_RT_HeapCluster::ExtractBlocks`.
+2. **Read of a freed object's first block, quarantine only.** Reads the last byte of the string's first heap block, which a free-list node would otherwise keep accessible. Expected: `Invalid read of size 1`.
+3. **Uninitialised object memory.** Allocates an object without zeroing it, never writes it, and branches on its first byte. Expected: `Conditional jump or move depends on uninitialised value(s)`, with the origin `created by a client request at CLR_RT_HeapCluster::ExtractBlocks`.
+4. **Read after release to the event cache.** Takes a node from the event cache, releases it the way a stack frame or a lock request is released, and reads it. Expected: `Invalid read of size 1`.
 
-Both objects are ordinary garbage afterwards and the program carries on normally, so the self-test can be added to any run. Any PE v1 application will do; the command below uses the stress application, built as described in [Stress application](#stress-application):
+That is three errors, or four with `NANOCLR_HEAP_QUARANTINE=1`. The objects are ordinary garbage afterwards and the program carries on normally, so the self-test can be added to any run. Any PE v1 application will do; the command below uses the stress application, built as described in [Stress application](#stress-application):
 
 ```bash
 NANOCLR_HEAP_SELFTEST=1 \
@@ -62,10 +68,10 @@ valgrind --track-origins=yes --num-callers=8 --log-file=vg-selftest.log \
     ./build/posix64-memcheck/bin/nanoFramework.nanoCLR.test $(cat build/heapstress/pe-files.txt)
 ```
 
-The log brackets the two errors with markers:
+The log brackets the errors with markers, the first of which states how many to expect (shortened):
 
 ```
-**PID** nanoCLR heap self-test: expect 'Invalid read' and 'Conditional jump' from HeapAnnotations.cpp
+**PID** nanoCLR heap self-test: expect 3 errors from HeapAnnotations.cpp
 Invalid read of size 1
    at RunSelfTest() (HeapAnnotations.cpp)
    by NanoCLR_HeapStress_BeforeAllocation(unsigned int) (HeapAnnotations.cpp)
@@ -80,14 +86,19 @@ Conditional jump or move depends on uninitialised value(s)
    at CLR_RT_HeapCluster::ExtractBlocks(unsigned int, unsigned int, unsigned int) (CLR_RT_HeapCluster.cpp)
    by CLR_RT_ExecutionEngine::ExtractHeapBlocksForObjects(...) (Execution.cpp)
    by RunSelfTest() (HeapAnnotations.cpp)
+Invalid read of size 1
+   at RunSelfTest() (HeapAnnotations.cpp)
+   ...
 **PID** nanoCLR heap self-test: done
 ```
 
 | Result | Meaning |
 |---|---|
-| two errors between the markers, both in `RunSelfTest()` | the annotations work |
-| no `Invalid read` | free blocks are not being made inaccessible: check the `FREE` hooks in `RecoverFromGC`, and that the build defines `NANOCLR_HEAP_ANNOTATIONS` |
+| the expected number of errors between the markers, all in `RunSelfTest()` | the annotations work |
+| no `Invalid read` from the first case | free blocks are not being made inaccessible: check the `FREE` hooks in `RecoverFromGC`, and that the build defines `NANOCLR_HEAP_ANNOTATIONS` |
+| no `Invalid read` from the quarantine case | check the `QUARANTINE` hook in `RecoverFromGC` |
 | no `Conditional jump` | new objects are not being marked uninitialised: check the `ALLOC` hook in `ExtractBlocks` |
+| no `Invalid read` from the event-cache case | check the `FREE` hook in `CLR_RT_EventCache::Append_Node` |
 | no markers in the log | the binary is not from `build/posix64-memcheck`, or `NANOCLR_HEAP_SELFTEST` is not set |
 | further errors between the markers | false positives from the allocator or the GC itself, i.e. a bug in the hooks |
 | errors after `self-test: done` | unrelated to the self-test: findings in the application or the CLR |
@@ -96,9 +107,11 @@ A scripted check, for CI:
 
 ```bash
 section() { sed -n '/self-test: expect/,/self-test: done/p' vg-selftest.log; }
+want=$(section | grep -oE 'expect [0-9]+ errors' | grep -oE '[0-9]+')
 n=$(section | grep -cE '^==[0-9]+== (Invalid read|Conditional jump)')
 at=$(section | grep -A1 -E '^==[0-9]+== (Invalid read|Conditional jump)' | grep -c 'RunSelfTest()')
-[ "$n" -eq 2 ] && [ "$at" -eq 2 ] && echo "heap self-test OK" || { echo "heap self-test FAILED"; exit 1; }
+[ -n "$want" ] && [ "$n" -eq "$want" ] && [ "$at" -eq "$want" ] && echo "heap self-test OK" \
+    || { echo "heap self-test FAILED"; exit 1; }
 ```
 
 ## GC stress
@@ -114,6 +127,18 @@ at=$(section | grep -A1 -E '^==[0-9]+== (Invalid read|Conditional jump)' | grep 
 Stress skips allocations flagged `HB_NoGcOnFailedAllocation` and allocations made during a GC, where a collection must not run, and it does not start a GC from inside one (`PerformGarbageCollection` allocates the finalizer thread).
 
 Stress also works without valgrind. A bug then shows as a crash instead of a report, but much sooner, which is a quick way to see whether a problem is there at all.
+
+## Compaction stress
+
+The CLR never compacts inside an allocation, only at a safe point of the scheduler loop, and on its own it rarely compacts at all. `NANOCLR_COMPACT_STRESS=<n>` schedules a compaction after every n-th stress GC (so it needs `NANOCLR_GC_STRESS`); the CLR runs it at the next safe point, exactly like a compaction it schedules itself. Live objects then move often, and native code that keeps a raw pointer to one across calls, where `Relocate` does not update it, is left holding the old address. That address is a free block after the move, so memcheck reports the next access.
+
+Several collections between two safe points still make one compaction, so `1` means "as often as the CLR can", which is about one compaction per scheduler pass. (The harness options `--forcegc` and `--compactionaftergc` are not forwarded to the CLR on this host, so they do not do this.)
+
+## Quarantine
+
+A freed block usually goes back to the allocator at once, so a stale pointer soon lands in a new, valid object and memcheck has nothing to report. With `NANOCLR_HEAP_QUARANTINE=1` the objects that die in a collection are kept out of the free list until the next one: `RecoverFromGC` gathers them into separate free blocks that are not linked, with everything but their 4-byte header inaccessible (heap walks read nothing else). The next collection releases them normally.
+
+The quarantine needs more heap. If allocations start failing, raise `NANOCLR_HEAP_SIZE_MB`.
 
 ## Stress application
 
@@ -165,6 +190,11 @@ NANOCLR_GC_STRESS=1 ./build/posix64-memcheck/bin/nanoFramework.nanoCLR.test $(ca
 NANOCLR_HEAP_SELFTEST=1 NANOCLR_GC_STRESS=50 \
 valgrind --track-origins=yes --num-callers=30 --log-file=vg.log \
     ./build/posix64-memcheck/bin/nanoFramework.nanoCLR.test $(cat build/heapstress/pe-files.txt)
+
+# everything at once: quarantine, and a compaction after every stress GC
+NANOCLR_HEAP_SELFTEST=1 NANOCLR_HEAP_QUARANTINE=1 NANOCLR_GC_STRESS=20 NANOCLR_COMPACT_STRESS=1 \
+valgrind --track-origins=yes --num-callers=30 --log-file=vg.log \
+    ./build/posix64-memcheck/bin/nanoFramework.nanoCLR.test $(cat build/heapstress/pe-files.txt)
 ```
 
 To see only the application's own output, filter with `grep ^HEAPSTRESS`.
@@ -180,19 +210,26 @@ When the stack is not enough, stop at the error (`--vgdb=yes --vgdb-error=1`, th
 
 ### Examples
 
-Both were found with this tooling, and both are in the shared CLR code.
+All of them were found with this tooling, and all of them are in the shared CLR code.
 
 **Phantom evaluation-stack slot in `PushInline`.** Report: `Conditional jump ... uninitialised` in `ComputeReachabilityGraphForMultipleBlocks`, called from `Thread_Mark` at `CheckMultipleBlocks(stack->m_evalStack, ...)`, with the origin `CLR_RT_StackFrame::Push`. In gdb the scanned frame had `c_MethodKind_Inlined` set and `TopValuePosition() == 1` with an empty stack. `CLR_RT_StackFrame::PushInline` sets `m_evalStackPos = evalPos + 1`, so slot `m_evalStack[0]` of the inlined method is never written, and the GC follows whatever it contains as a reference. The stress application hits it within seconds at `NANOCLR_GC_STRESS=1`.
 
-**Truncated `MethodInfo`.** Report: a crash reading address `0xe` in `CLR_RT_SignatureParser::Initialize_MethodSignature` from `MethodBase::GetParametersNative`. `SetReflection()` writes a header size of one block into a `MethodInfo` object that has two (header and `_token` field). The `_token` block becomes a separate, unreachable block the GC frees, and `GetParametersNative` later reads freed or reused memory. Memcheck did not report the read because the block had already been handed out again (see [Limitations](#limitations)); it showed as a crash. The stress application hits it within a minute at `NANOCLR_GC_STRESS=20`.
+**Truncated `MethodInfo`.** Report: a crash reading address `0xe` in `CLR_RT_SignatureParser::Initialize_MethodSignature` from `MethodBase::GetParametersNative`. `SetReflection()` writes a header size of one block into a `MethodInfo` object that has two (header and `_token` field). The `_token` block becomes a separate, unreachable block the GC frees, and `GetParametersNative` later reads freed or reused memory. Memcheck did not report the read because the block had already been handed out again (see [Limitations](#limitations)); it showed as a crash. The stress application hits it within a minute at `NANOCLR_GC_STRESS=20`. With `NANOCLR_HEAP_QUARANTINE=1` the freed `_token` block stays inaccessible, so the read is reported where it happens.
+
+**Static-constructor thread used after release.** Report: `Invalid read` and `Invalid write` in `CLR_RT_Thread::Passivate()` right after it calls the thread's termination callback, then in `ReleaseWhenDeadEx()`. For the static-constructor thread that callback is `StaticConstructorTerminationCallback`, which ends in `SpawnStaticConstructor` calling `pCctorThread->DestroyInstance()` once no static constructor is left. That releases the thread to the event cache while the outer `Passivate()` is still running on it; `Passivate()` then reads and writes the released block and releases it a second time. Nothing is allocated in between, so it does no harm today. It shows up in every run of the stress application.
+
+**Finalizer record used after release (`SpawnFinalizer` re-entered).** Report: `Invalid read` in `CLR_RT_HeapBlock_Delegate::CreateInstance` and in `SpawnFinalizer`, called from `FinalizerTerminationCallback`. `SpawnFinalizer` takes the first pending finalizer record and allocates a delegate for it. That allocation can run a GC, and `PerformGarbageCollection` ends by calling `SpawnFinalizer`, which handles the same record and releases it to the event cache; the outer call then goes on with the released record (`m_md`, `m_object`). It needs a GC in exactly that allocation, which GC stress provides and a full heap does in the field.
+
+**Uninitialised result slot of a failing native method.** Report: `Conditional jump ... uninitialised` in `ComputeReachabilityGraphForMultipleBlocks` from `Thread_Mark`, with the origin `CLR_RT_StackFrame::Push` via `Extract_Node_Fast`, during the allocation of an exception in `CLR_RT_Thread::Execute`. The scanned frame is `BinaryFormatter.Serialize`, whose native method calls `CLR_RT_BinaryFormatter::Serialize(stack.PushValue(), ...)`. `PushValue()` moves the top of the evaluation stack onto a slot nobody has written, and on this host that function is the stub, which returns `CLR_E_NOTIMPL` without writing it. Creating the `NotImplementedException` allocates, and the GC scans the slot. Any native method that fails after `PushValue()` and before writing the value does the same.
 
 ## Limitations
 
-- **No quarantine.** A freed block usually goes back to the allocator quickly. A stale pointer that lands in a new object is not reported.
-- **Event cache.** Blocks of `CLR_RT_EventCache` (stack frames among them) are recycled outside the allocator and always look live to memcheck. With `--forcegc`, event allocations bypass the cache's fast lists.
-- **Neighbouring objects.** There are no red zones between objects, so a write past the end of an object into a **live** neighbour is not detected; only writes into free blocks are.
-- **Relocation.** Compaction runs at safe points, not inside allocations, so stress does not exercise relocation; `--compactionaftergc` does. A wrongly relocated pointer is not detected.
-- **Second heap.** The custom heap (`CustomHeapLocation`, `platform_malloc`) is not annotated and remains a single block to memcheck.
+- **Quarantine lasts one collection.** A stale pointer used only after the next GC can land in a new object and go unreported.
+- **Neighbouring objects.** There are no red zones between objects, so a write past the end of an object into a **live** neighbour is not detected; only writes into free, quarantined or cached blocks are.
+- **Relocation.** A pointer the CLR relocates to a wrong but valid address is not detected; only pointers left at the old address are.
+- **Inline frame buffers.** `CLR_RT_InlineBuffer` records live in a static array, not in the heap, and are not annotated.
+
+Native memory outside the managed heap needs no annotations: on this host `platform_malloc` is plain `malloc`, so memcheck checks it like any other allocation, leaks included.
 
 ## How it is built
 
@@ -201,15 +238,18 @@ The shared code only has hooks. Without `NANOCLR_HEAP_ANNOTATIONS` they are empt
 | Hook | Where | Meaning |
 |---|---|---|
 | `NANOCLR_HEAP_ANNOTATE_ALLOC` | `CLR_RT_HeapCluster::ExtractBlocks` | a new object, uninitialised |
-| `NANOCLR_HEAP_ANNOTATE_UNFREE` | `ExtractBlocks` (before splitting a free block), `Heap_Compact` (before `memmove`) | the inside of a free block becomes writable again |
-| `NANOCLR_HEAP_ANNOTATE_FREE` | `RecoverFromGC` (sweep), `InsertInOrder`, the remainder in `ExtractBlocks`, `Heap_Compact` | a free block: header accessible, the rest inaccessible |
-| `NANOCLR_HEAP_STRESS_BEFORE_ALLOCATION` | `CLR_RT_ExecutionEngine::ExtractHeapBlocks` | GC stress and the self-test |
+| `NANOCLR_HEAP_ANNOTATE_UNFREE` | `ExtractBlocks` (before splitting a free block), `Heap_Compact` (before `memmove`), `CLR_RT_EventCache::Extract_Node_Fast`/`_Slow` | the inside of a free or cached block becomes writable and uninitialised; the header and links stay |
+| `NANOCLR_HEAP_ANNOTATE_FREE` | `RecoverFromGC` (sweep), `InsertInOrder`, the remainder in `ExtractBlocks`, `Heap_Compact`, `CLR_RT_EventCache::Append_Node` | a free or cached block: header and links accessible, the rest inaccessible |
+| `NANOCLR_HEAP_ANNOTATE_QUARANTINE` | `RecoverFromGC` | a quarantined block: only the header accessible |
+| `NANOCLR_HEAP_ANNOTATE_RELINK` | `RecoverFromGC` | the first block of a run becomes writable before it is turned into a free-list node |
+| `NANOCLR_HEAP_QUARANTINE_ENABLED` | `RecoverFromGC` | whether dying objects are quarantined; `false` when annotations are off, so the code compiles away |
+| `NANOCLR_HEAP_STRESS_BEFORE_ALLOCATION` | `CLR_RT_ExecutionEngine::ExtractHeapBlocks` | GC and compaction stress, and the self-test |
 
 | File | Contents |
 |---|---|
 | `src/CLR/Include/nanoCLR_HeapAnnotations.h` | the hooks and their empty defaults |
 | `targets/posix/Include/nanoCLR_HeapAnnotations_target.h` | the hooks as memcheck client requests (`VALGRIND_MAKE_MEM_*`) |
-| `targets/posix/nanoCLR/HeapAnnotations.cpp` | GC stress and the self-test |
+| `targets/posix/nanoCLR/HeapAnnotations.cpp` | GC and compaction stress, quarantine switch and the self-test |
 | `targets/posix/nanoCLR/CMakeLists.txt` | the `NANO_POSIX_HEAP_MEMCHECK` option |
 | `targets/posix/CMakePresets.json` | the `posix-x64-memcheck` and `posix-x86-memcheck` presets |
 | `targets/posix/tests/HeapStress/` | the stress application and its build script |

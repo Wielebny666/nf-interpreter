@@ -447,6 +447,8 @@ void CLR_RT_EventCache::Append_Node(CLR_RT_HeapBlock *node)
     ptr->Debug_ClearBlock(SENTINEL_NODE_APPENDED);
 
     lst.m_blocks.LinkAtBack(ptr);
+
+    NANOCLR_HEAP_ANNOTATE_FREE(ptr, blocks);
 }
 
 CLR_RT_HeapBlock *CLR_RT_EventCache::Extract_Node_Slow(CLR_UINT32 dataType, CLR_UINT32 flags, CLR_UINT32 blocks)
@@ -483,6 +485,8 @@ CLR_RT_HeapBlock *CLR_RT_EventCache::Extract_Node_Slow(CLR_UINT32 dataType, CLR_
 
     if (node)
     {
+        NANOCLR_HEAP_ANNOTATE_UNFREE(node, bestSize);
+
         //
         // Did we select a block bigger than requested? Requeue the tail.
         //
@@ -538,6 +542,8 @@ CLR_RT_HeapBlock *CLR_RT_EventCache::Extract_Node_Fast(CLR_UINT32 dataType, CLR_
 
         ptr->ChangeDataType(dataType);
         ptr->ChangeDataFlags(CLR_RT_HeapBlock::HB_Alive | CLR_RT_HeapBlock::HB_Event);
+
+        NANOCLR_HEAP_ANNOTATE_UNFREE(ptr, blocks);
 
         if (flags & CLR_RT_HeapBlock::HB_InitializeToZero)
         {
