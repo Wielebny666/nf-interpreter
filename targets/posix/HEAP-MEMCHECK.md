@@ -211,5 +211,26 @@ The shared code only has hooks. Without `NANOCLR_HEAP_ANNOTATIONS` they are empt
 | `targets/posix/Include/nanoCLR_HeapAnnotations_target.h` | the hooks as memcheck client requests (`VALGRIND_MAKE_MEM_*`) |
 | `targets/posix/nanoCLR/HeapAnnotations.cpp` | GC stress and the self-test |
 | `targets/posix/nanoCLR/CMakeLists.txt` | the `NANO_POSIX_HEAP_MEMCHECK` option |
-| `targets/posix/CMakePresets.json` | the `posix-x64-memcheck` preset |
+| `targets/posix/CMakePresets.json` | the `posix-x64-memcheck` and `posix-x86-memcheck` presets |
 | `targets/posix/tests/HeapStress/` | the stress application and its build script |
+
+## References
+
+Valgrind 3.22 documentation; a local copy comes with the `valgrind` package in `/usr/share/doc/valgrind/html/`. The comments in `/usr/include/valgrind/memcheck.h` and `valgrind.h` are the most precise description of each request.
+
+The client requests this build uses, and those to extend it with:
+
+- [Memcheck client requests](https://valgrind.org/docs/manual/mc-manual.html#mc-manual.clientreqs): `VALGRIND_MAKE_MEM_NOACCESS/UNDEFINED/DEFINED`, `VALGRIND_CHECK_MEM_IS_*`, `VALGRIND_CREATE_BLOCK`
+- [Memory pools](https://valgrind.org/docs/manual/mc-manual.html#mc-manual.mempools): `VALGRIND_CREATE_MEMPOOL`, `VALGRIND_MEMPOOL_ALLOC/FREE/CHANGE`, which would give each object its own "alloc'd at / freed at" in reports
+- [Core client requests](https://valgrind.org/docs/manual/manual-core-adv.html#manual-core-adv.clientreq): `VALGRIND_PRINTF`, `RUNNING_ON_VALGRIND`, `VALGRIND_DISABLE_ERROR_REPORTING`
+- [How memcheck tracks memory](https://valgrind.org/docs/manual/mc-manual.html#mc-manual.machine): the A (addressable) and V (valid) bits behind "defined" and "undefined"
+- [Memcheck monitor commands](https://valgrind.org/docs/manual/mc-manual.html#mc-manual.monitor-commands): `get_vbits`, `check_memory`, `who_points_at` from gdb through vgdb
+
+Writing a separate valgrind tool, which instruments the code itself:
+
+- [Writing a New Valgrind Tool](https://valgrind.org/docs/manual/manual-writing-tools.html)
+- [Valgrind technical documentation](https://valgrind.org/docs/manual/tech-docs.html)
+
+Without valgrind:
+
+- [AddressSanitizer manual poisoning](https://github.com/google/sanitizers/wiki/AddressSanitizerManualPoisoning): `ASAN_POISON_MEMORY_REGION` / `ASAN_UNPOISON_MEMORY_REGION` from `<sanitizer/asan_interface.h>`. An ASan variant of the hooks would only need another `nanoCLR_HeapAnnotations_target.h` and runs far faster than valgrind, but ASan does not track uninitialised memory, so it would not see bugs like the `PushInline` one above.
