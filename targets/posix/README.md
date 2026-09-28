@@ -46,6 +46,10 @@ cmake --build build/posix
 - Default: `ON`
 - Enables minimal command-line smoke behaviour.
 
+`NANO_POSIX_HEAP_MEMCHECK`
+- Default: `OFF` (`ON` in the `posix-x64-memcheck` preset)
+- Describes the managed heap to valgrind memcheck, so native code that reads a managed object after the GC freed it, or reads object memory nothing has written, is reported where it happens. Needs the valgrind headers. See [HEAP-MEMCHECK.md](HEAP-MEMCHECK.md).
+
 ## Running Managed Tests
 
 Pass PE files directly to the test harness in the same order used by the nanoclr global tool:
