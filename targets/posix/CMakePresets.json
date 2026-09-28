@@ -102,6 +102,16 @@
             "cacheVariables": {
                 "NANO_POSIX_ENABLE_DEBUGGER": "ON"
             }
+        },
+        {
+            "name": "posix-x86-memcheck",
+            "inherits": "posix-x86-debugger",
+            "displayName": "POSIX i386 -> build/posix32-memcheck (Debug + Wire Protocol, heap annotated for valgrind)",
+            "description": "Same as posix-x64-memcheck with the 12-byte CLR_RT_HeapBlock of the embedded targets. Needs valgrind's x86 tools and libc6-dbg:i386.",
+            "binaryDir": "${sourceDir}/../../build/posix32-memcheck",
+            "cacheVariables": {
+                "NANO_POSIX_HEAP_MEMCHECK": "ON"
+            }
         }
     ],
     "buildPresets": [
@@ -149,6 +159,11 @@
             "name": "posix-x86-debugger",
             "displayName": "POSIX i386 -> build/posix32-wp (Debug + Wire Protocol debugger)",
             "configurePreset": "posix-x86-debugger"
+        },
+        {
+            "name": "posix-x86-memcheck",
+            "displayName": "POSIX i386 -> build/posix32-memcheck (Debug + Wire Protocol, heap annotated for valgrind)",
+            "configurePreset": "posix-x86-memcheck"
         }
     ]
 }

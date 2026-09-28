@@ -33,6 +33,8 @@ cmake --build --preset posix-x64-memcheck
 
 The preset inherits `posix-x64-debugger` (Debug with the Wire Protocol debugger) and builds into `build/posix64-memcheck`. It sets the CMake option `NANO_POSIX_HEAP_MEMCHECK`, which needs the valgrind headers (`valgrind/memcheck.h`, package `valgrind` on Debian and Ubuntu).
 
+`posix-x86-memcheck` is the same for i386 (`build/posix32-memcheck`). That build has the 12-byte `CLR_RT_HeapBlock` of the embedded targets, so it is the one closest to a device. It needs the 32-bit multilib toolchain like the other `posix-x86` presets, and `libc6-dbg:i386` for valgrind. Everything below works the same with either build.
+
 The binary also runs without valgrind. The annotations are then a few no-op instructions each.
 
 ## Environment variables
