@@ -40,6 +40,16 @@
             }
         },
         {
+            "name": "posix-x64-memcheck",
+            "inherits": "posix-x64-debugger",
+            "displayName": "POSIX x86-64 -> build/posix64-memcheck (Debug + Wire Protocol, heap annotated for valgrind)",
+            "description": "Describes the managed heap to valgrind memcheck, so a native access to a freed managed object or to uninitialised object memory is reported where it happens. Run under valgrind; NANOCLR_GC_STRESS=<n> adds a GC before every n-th allocation.",
+            "binaryDir": "${sourceDir}/../../build/posix64-memcheck",
+            "cacheVariables": {
+                "NANO_POSIX_HEAP_MEMCHECK": "ON"
+            }
+        },
+        {
             "name": "posix-x64-debugger",
             "inherits": "posix-x64-debug",
             "displayName": "POSIX x86-64 -> build/posix64-wp (Debug + Wire Protocol debugger)",
@@ -109,6 +119,11 @@
             "name": "posix-x64-soak",
             "displayName": "POSIX x86-64 -> build/posix64-soak (Debug, heap validation 3)",
             "configurePreset": "posix-x64-soak"
+        },
+        {
+            "name": "posix-x64-memcheck",
+            "displayName": "POSIX x86-64 -> build/posix64-memcheck (Debug + Wire Protocol, heap annotated for valgrind)",
+            "configurePreset": "posix-x64-memcheck"
         },
         {
             "name": "posix-x64-debugger",

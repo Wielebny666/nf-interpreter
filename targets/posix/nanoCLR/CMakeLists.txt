@@ -76,6 +76,25 @@ else()
     list(APPEND NANOCLR_POSIX_EXTRA_SOURCES Target_BlockStorage.cpp)
 endif()
 
+# Tells valgrind memcheck where the managed objects and free blocks are inside
+# the heap region, which it otherwise sees as one allocated block. Free blocks
+# become inaccessible and new objects uninitialised, so a native access to an
+# object the GC has already freed shows up as an invalid read or write. The
+# binary still runs outside valgrind. NANOCLR_GC_STRESS=<n> at run time adds a
+# GC before every n-th allocation.
+option(NANO_POSIX_HEAP_MEMCHECK "Annotate the managed heap for valgrind memcheck." OFF)
+
+if(NANO_POSIX_HEAP_MEMCHECK)
+    find_path(NANO_POSIX_VALGRIND_INCLUDE_DIR valgrind/memcheck.h)
+
+    if(NOT NANO_POSIX_VALGRIND_INCLUDE_DIR)
+        message(FATAL_ERROR "NANO_POSIX_HEAP_MEMCHECK needs valgrind/memcheck.h (install valgrind).")
+    endif()
+
+    list(APPEND NANOCLR_POSIX_EXTRA_SOURCES HeapAnnotations.cpp)
+    message(STATUS "nanoCLR POSIX: managed heap annotated for valgrind memcheck")
+endif()
+
 set(NANOCLR_POSIX_SOURCES
     ${NANOCLR_POSIX_EXTRA_SOURCES}
     CLRStartup.cpp
@@ -337,6 +356,7 @@ target_include_directories(
     # POSIX-specific headers first so they shadow any Windows-only variants
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/../Include
+    $<$<BOOL:${NANO_POSIX_HEAP_MEMCHECK}>:${NANO_POSIX_VALGRIND_INCLUDE_DIR}>
     # Shared CLR, HAL and PAL headers
     ${REPO_ROOT}/src/CLR/Include
     ${REPO_ROOT}/src/CLR/Core
@@ -401,6 +421,7 @@ target_compile_definitions(
     PRIVATE
     ${NANOCLR_POSIX_COMMON_DEFINITIONS}
     $<$<BOOL:${NANO_POSIX_ENABLE_NETWORK}>:NANOCLR_POSIX_SOCKETS=1>
+    $<$<BOOL:${NANO_POSIX_HEAP_MEMCHECK}>:NANOCLR_HEAP_ANNOTATIONS=1>
     NANO_POSIX_ENABLE_SMOKE=$<BOOL:${NANO_POSIX_ENABLE_SMOKE}>
 )
 

@@ -199,6 +199,8 @@ void CLR_RT_GarbageCollector::Heap_Compact()
                 CLR_UINT32 freeRegion_Size = freeRegion->DataSize();
                 bool fSlide;
 
+                NANOCLR_HEAP_ANNOTATE_UNFREE(freeRegion, freeRegion_Size);
+
                 relocCurrent->m_destination = (CLR_UINT8 *)freeRegion;
                 relocCurrent->m_start = (CLR_UINT8 *)currentSource;
 
@@ -306,6 +308,8 @@ void CLR_RT_GarbageCollector::Heap_Compact()
                 }
                 else
                 {
+                    NANOCLR_HEAP_ANNOTATE_FREE(freeRegion, freeRegion->DataSize());
+
                     freeRegion = freeRegion->Next();
                 }
 

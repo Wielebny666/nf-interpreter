@@ -1681,6 +1681,8 @@ CLR_RT_HeapBlock *CLR_RT_ExecutionEngine::ExtractHeapBlocks(
     }
 #endif
 
+    NANOCLR_HEAP_STRESS_BEFORE_ALLOCATION(flags);
+
     for (int phase = 0;; phase++)
     {
         {

@@ -20,6 +20,7 @@
 // #include <SPOT_native.h>
 // #include <SPOT_hardware_native.h>
 #include <nanoCLR_Runtime__HeapBlock.h>
+#include <nanoCLR_HeapAnnotations.h>
 
 #include <inttypes.h>
 
