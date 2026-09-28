@@ -208,19 +208,9 @@ The address description always reads `... bytes inside a block of size <heap siz
 
 When the stack is not enough, stop at the error (`--vgdb=yes --vgdb-error=1`, then `gdb` with `target remote | vgdb`) and inspect the state: which stack frame and slot the GC is scanning, or the type and size of the object (`ptr->DataType()`, `ptr->DataSize()`).
 
-### Examples
+### Findings
 
-All of them were found with this tooling, and all of them are in the shared CLR code.
-
-**Phantom evaluation-stack slot in `PushInline`.** Report: `Conditional jump ... uninitialised` in `ComputeReachabilityGraphForMultipleBlocks`, called from `Thread_Mark` at `CheckMultipleBlocks(stack->m_evalStack, ...)`, with the origin `CLR_RT_StackFrame::Push`. In gdb the scanned frame had `c_MethodKind_Inlined` set and `TopValuePosition() == 1` with an empty stack. `CLR_RT_StackFrame::PushInline` sets `m_evalStackPos = evalPos + 1`, so slot `m_evalStack[0]` of the inlined method is never written, and the GC follows whatever it contains as a reference. The stress application hits it within seconds at `NANOCLR_GC_STRESS=1`.
-
-**Truncated `MethodInfo`.** Report: a crash reading address `0xe` in `CLR_RT_SignatureParser::Initialize_MethodSignature` from `MethodBase::GetParametersNative`. `SetReflection()` writes a header size of one block into a `MethodInfo` object that has two (header and `_token` field). The `_token` block becomes a separate, unreachable block the GC frees, and `GetParametersNative` later reads freed or reused memory. Memcheck did not report the read because the block had already been handed out again (see [Limitations](#limitations)); it showed as a crash. The stress application hits it within a minute at `NANOCLR_GC_STRESS=20`. With `NANOCLR_HEAP_QUARANTINE=1` the freed `_token` block stays inaccessible, so the read is reported where it happens.
-
-**Static-constructor thread used after release.** Report: `Invalid read` and `Invalid write` in `CLR_RT_Thread::Passivate()` right after it calls the thread's termination callback, then in `ReleaseWhenDeadEx()`. For the static-constructor thread that callback is `StaticConstructorTerminationCallback`, which ends in `SpawnStaticConstructor` calling `pCctorThread->DestroyInstance()` once no static constructor is left. That releases the thread to the event cache while the outer `Passivate()` is still running on it; `Passivate()` then reads and writes the released block and releases it a second time. Nothing is allocated in between, so it does no harm today. It shows up in every run of the stress application.
-
-**Finalizer record used after release (`SpawnFinalizer` re-entered).** Report: `Invalid read` in `CLR_RT_HeapBlock_Delegate::CreateInstance` and in `SpawnFinalizer`, called from `FinalizerTerminationCallback`. `SpawnFinalizer` takes the first pending finalizer record and allocates a delegate for it. That allocation can run a GC, and `PerformGarbageCollection` ends by calling `SpawnFinalizer`, which handles the same record and releases it to the event cache; the outer call then goes on with the released record (`m_md`, `m_object`). It needs a GC in exactly that allocation, which GC stress provides and a full heap does in the field.
-
-**Uninitialised result slot of a failing native method.** Report: `Conditional jump ... uninitialised` in `ComputeReachabilityGraphForMultipleBlocks` from `Thread_Mark`, with the origin `CLR_RT_StackFrame::Push` via `Extract_Node_Fast`, during the allocation of an exception in `CLR_RT_Thread::Execute`. The scanned frame is `BinaryFormatter.Serialize`, whose native method calls `CLR_RT_BinaryFormatter::Serialize(stack.PushValue(), ...)`. `PushValue()` moves the top of the evaluation stack onto a slot nobody has written, and on this host that function is the stub, which returns `CLR_E_NOTIMPL` without writing it. Creating the `NotImplementedException` allocates, and the GC scans the slot. Any native method that fails after `PushValue()` and before writing the value does the same.
+Everything found with this tooling so far, with how each was found and a verification patch where one exists, is in [heap-memcheck-findings](heap-memcheck-findings/README.md). Those files are also worked examples of reading a report.
 
 ## Limitations
 
@@ -253,6 +243,7 @@ The shared code only has hooks. Without `NANOCLR_HEAP_ANNOTATIONS` they are empt
 | `targets/posix/nanoCLR/CMakeLists.txt` | the `NANO_POSIX_HEAP_MEMCHECK` option |
 | `targets/posix/CMakePresets.json` | the `posix-x64-memcheck` and `posix-x86-memcheck` presets |
 | `targets/posix/tests/HeapStress/` | the stress application and its build script |
+| `targets/posix/heap-memcheck-findings/` | the findings, how they were found, and verification patches |
 
 ## References
 
@@ -273,4 +264,4 @@ Writing a separate valgrind tool, which instruments the code itself:
 
 Without valgrind:
 
-- [AddressSanitizer manual poisoning](https://github.com/google/sanitizers/wiki/AddressSanitizerManualPoisoning): `ASAN_POISON_MEMORY_REGION` / `ASAN_UNPOISON_MEMORY_REGION` from `<sanitizer/asan_interface.h>`. An ASan variant of the hooks would only need another `nanoCLR_HeapAnnotations_target.h` and runs far faster than valgrind, but ASan does not track uninitialised memory, so it would not see bugs like the `PushInline` one above.
+- [AddressSanitizer manual poisoning](https://github.com/google/sanitizers/wiki/AddressSanitizerManualPoisoning): `ASAN_POISON_MEMORY_REGION` / `ASAN_UNPOISON_MEMORY_REGION` from `<sanitizer/asan_interface.h>`. An ASan variant of the hooks would only need another `nanoCLR_HeapAnnotations_target.h` and runs far faster than valgrind, but ASan does not track uninitialised memory, so it would not see bugs like [finding 1](heap-memcheck-findings/01-pushinline-phantom-slot.md).

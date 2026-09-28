@@ -1,0 +1,18 @@
+diff --git a/src/CLR/CorLib/corlib_native_System_Reflection_MethodBase.cpp b/src/CLR/CorLib/corlib_native_System_Reflection_MethodBase.cpp
+index 44ad2fcd1..a73903c66 100644
+--- a/src/CLR/CorLib/corlib_native_System_Reflection_MethodBase.cpp
++++ b/src/CLR/CorLib/corlib_native_System_Reflection_MethodBase.cpp
+@@ -211,8 +211,11 @@ HRESULT Library_corlib_native_System_Reflection_MethodBase::GetParametersNative_
+ 
+     CLR_RT_HeapBlock *hbMethodInfo = stack.This();
+ 
+-    idx.m_data = hbMethodInfo[FIELD___token].NumericByRef().u4;
+-    inst.InitializeFromIndex(idx);
++    // The MethodInfo object is a reflection block: SetReflection() has cut its size down to one heap block, so the
++    // _token field that follows is no longer part of it and the GC may already have freed it. The method index is
++    // in the reflection data itself.
++    (void)idx;
++    NANOCLR_CHECK_HRESULT(GetMethodDescriptor(stack, *hbMethodInfo, inst));
+ 
+     // 1st pass: get the number of parameters
+     sigParser.Initialize_MethodSignature(inst.m_assm, inst.m_target);
