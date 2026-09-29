@@ -6,9 +6,9 @@ When a managed program that has used sockets ends, the POSIX host process aborts
 
 ## Where
 
-- [targets/posix/nanoCLR/Sockets_POSIX.cpp](../nanoCLR/Sockets_POSIX.cpp): `class ReadinessMonitor` (line 141) owns `std::thread m_thread`; the global instance `ReadinessMonitor s_monitor` (line 293) has no destructor that stops it. `Stop()` joins the thread and is called only from `Network_Uninitialize()` (line 636).
-- [targets/posix/nanoCLR/Various.cpp](../nanoCLR/Various.cpp): `Network_Uninitialize()` is called only from `nanoHAL_Uninitialize()`.
-- [targets/posix/nanoCLR/CLRStartup.cpp](../nanoCLR/CLRStartup.cpp): `nanoHAL_Uninitialize()` runs only on a CLR-only soft reboot (around line 586), not when the program simply ends.
+- [targets/posix/nanoCLR/Sockets_POSIX.cpp](../../nanoCLR/Sockets_POSIX.cpp): `class ReadinessMonitor` (line 141) owns `std::thread m_thread`; the global instance `ReadinessMonitor s_monitor` (line 293) has no destructor that stops it. `Stop()` joins the thread and is called only from `Network_Uninitialize()` (line 636).
+- [targets/posix/nanoCLR/Various.cpp](../../nanoCLR/Various.cpp): `Network_Uninitialize()` is called only from `nanoHAL_Uninitialize()`.
+- [targets/posix/nanoCLR/CLRStartup.cpp](../../nanoCLR/CLRStartup.cpp): `nanoHAL_Uninitialize()` runs only on a CLR-only soft reboot (around line 586), not when the program simply ends.
 
 ## Cause
 

@@ -3,7 +3,7 @@
 # See LICENSE file in the project root for full license information.
 #
 # Dev container for the POSIX host target (targets/posix) and its heap memcheck
-# tooling (targets/posix/HEAP-MEMCHECK.md).
+# tooling (targets/posix/doc/HEAP-MEMCHECK.md).
 #
 # By default the image is built locally from Dockerfile.POSIX the first time it
 # is needed:

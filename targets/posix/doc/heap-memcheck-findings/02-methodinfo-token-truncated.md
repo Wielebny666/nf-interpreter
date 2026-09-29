@@ -6,9 +6,9 @@ The native reflection code creates a `MethodInfo` object with two heap blocks (h
 
 ## Where
 
-- [src/CLR/CorLib/corlib_native_System_Type.cpp](../../../src/CLR/CorLib/corlib_native_System_Type.cpp), `GetMethods` and `GetMethod`: `NewObjectFromIndex(..., m_MethodInfo)`, `SetReflection(...)`, then `hbObj[MethodBase::FIELD___token] = ...` (lines 677 and 770).
-- [src/CLR/Core/CLR_RT_HeapBlock.cpp](../../../src/CLR/Core/CLR_RT_HeapBlock.cpp), `CLR_RT_HeapBlock::SetReflection(const CLR_RT_MethodDef_Index &)` (line 276) and its overloads: `m_id.raw = CLR_RT_HEAPBLOCK_RAW_ID(DATATYPE_REFLECTION, 0, 1)`.
-- Read in [src/CLR/CorLib/corlib_native_System_Reflection_MethodBase.cpp:214](../../../src/CLR/CorLib/corlib_native_System_Reflection_MethodBase.cpp), `GetParametersNative`: `idx.m_data = hbMethodInfo[FIELD___token].NumericByRef().u4`.
+- [src/CLR/CorLib/corlib_native_System_Type.cpp](../../../../src/CLR/CorLib/corlib_native_System_Type.cpp), `GetMethods` and `GetMethod`: `NewObjectFromIndex(..., m_MethodInfo)`, `SetReflection(...)`, then `hbObj[MethodBase::FIELD___token] = ...` (lines 677 and 770).
+- [src/CLR/Core/CLR_RT_HeapBlock.cpp](../../../../src/CLR/Core/CLR_RT_HeapBlock.cpp), `CLR_RT_HeapBlock::SetReflection(const CLR_RT_MethodDef_Index &)` (line 276) and its overloads: `m_id.raw = CLR_RT_HEAPBLOCK_RAW_ID(DATATYPE_REFLECTION, 0, 1)`.
+- Read in [src/CLR/CorLib/corlib_native_System_Reflection_MethodBase.cpp:214](../../../../src/CLR/CorLib/corlib_native_System_Reflection_MethodBase.cpp), `GetParametersNative`: `idx.m_data = hbMethodInfo[FIELD___token].NumericByRef().u4`.
 
 ## Cause
 

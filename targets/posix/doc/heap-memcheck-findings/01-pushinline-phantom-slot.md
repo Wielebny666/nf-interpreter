@@ -6,9 +6,9 @@ When the interpreter inlines a method, the inlined method starts with one evalua
 
 ## Where
 
-- [src/CLR/Core/CLR_RT_StackFrame.cpp](../../../src/CLR/Core/CLR_RT_StackFrame.cpp), `CLR_RT_StackFrame::PushInline` (line 272): `evalPos++` (line 321) and `m_evalStackPos = evalPos + 1` (line 330).
-- Scanned by `CLR_RT_GarbageCollector::Thread_Mark`, [GarbageCollector.cpp:794](../../../src/CLR/Core/GarbageCollector.cpp): `CheckMultipleBlocks(stack->m_evalStack, stack->TopValuePosition())`.
-- Relocated by `CLR_RT_StackFrame::Relocate` during compaction, [CLR_RT_StackFrame.cpp:1261](../../../src/CLR/Core/CLR_RT_StackFrame.cpp): for an inlined frame it relocates one range from the caller's evaluation stack up to `m_evalStackPos`, which includes the slot.
+- [src/CLR/Core/CLR_RT_StackFrame.cpp](../../../../src/CLR/Core/CLR_RT_StackFrame.cpp), `CLR_RT_StackFrame::PushInline` (line 272): `evalPos++` (line 321) and `m_evalStackPos = evalPos + 1` (line 330).
+- Scanned by `CLR_RT_GarbageCollector::Thread_Mark`, [GarbageCollector.cpp:794](../../../../src/CLR/Core/GarbageCollector.cpp): `CheckMultipleBlocks(stack->m_evalStack, stack->TopValuePosition())`.
+- Relocated by `CLR_RT_StackFrame::Relocate` during compaction, [CLR_RT_StackFrame.cpp:1261](../../../../src/CLR/Core/CLR_RT_StackFrame.cpp): for an inlined frame it relocates one range from the caller's evaluation stack up to `m_evalStackPos`, which includes the slot.
 
 ## Cause
 

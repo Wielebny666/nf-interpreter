@@ -1,5 +1,5 @@
 {
-    // Debugging the heap memcheck builds with HeapStress, see targets/posix/HEAP-MEMCHECK.md.
+    // Debugging the heap memcheck builds with HeapStress, see targets/posix/doc/HEAP-MEMCHECK.md.
     //
     // "native" runs the memcheck build straight under gdb: with GC stress a CLR bug shows up as a crash, and gdb
     // stops at it. "valgrind + gdb" runs it under valgrind and attaches gdb through vgdb: gdb stops at every error

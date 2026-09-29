@@ -6,10 +6,10 @@ A native method that takes its result slot with `stack.PushValue()` and then fai
 
 ## Where
 
-- [src/System.Runtime.Serialization/nf_system_runtime_serialization_System_Runtime_Serialization_Formatters_Binary_BinaryFormatter.cpp:13](../../../src/System.Runtime.Serialization/nf_system_runtime_serialization_System_Runtime_Serialization_Formatters_Binary_BinaryFormatter.cpp): `NANOCLR_SET_AND_LEAVE(CLR_RT_BinaryFormatter::Serialize(stack.PushValue(), stack.Arg0()))`.
-- [src/CLR/Core/Serialization/BinaryFormatter_stub.cpp:290](../../../src/CLR/Core/Serialization/BinaryFormatter_stub.cpp): the stub that this host links returns `CLR_E_NOTIMPL` through `NANOCLR_FEATURE_STUB_RETURN()` without touching `refData`.
+- [src/System.Runtime.Serialization/nf_system_runtime_serialization_System_Runtime_Serialization_Formatters_Binary_BinaryFormatter.cpp:13](../../../../src/System.Runtime.Serialization/nf_system_runtime_serialization_System_Runtime_Serialization_Formatters_Binary_BinaryFormatter.cpp): `NANOCLR_SET_AND_LEAVE(CLR_RT_BinaryFormatter::Serialize(stack.PushValue(), stack.Arg0()))`.
+- [src/CLR/Core/Serialization/BinaryFormatter_stub.cpp:290](../../../../src/CLR/Core/Serialization/BinaryFormatter_stub.cpp): the stub that this host links returns `CLR_E_NOTIMPL` through `NANOCLR_FEATURE_STUB_RETURN()` without touching `refData`.
 - `CLR_RT_StackFrame::PushValue()` moves the top of the stack without initialising the slot; `PushValueAndClear()` is the variant that does.
-- [src/CLR/Core/Interpreter.cpp:682](../../../src/CLR/Core/Interpreter.cpp): on a failure code, `CLR_RT_Thread::Execute()` calls `Library_corlib_native_System_Exception::CreateInstance`, which allocates.
+- [src/CLR/Core/Interpreter.cpp:682](../../../../src/CLR/Core/Interpreter.cpp): on a failure code, `CLR_RT_Thread::Execute()` calls `Library_corlib_native_System_Exception::CreateInstance`, which allocates.
 
 ## Cause
 

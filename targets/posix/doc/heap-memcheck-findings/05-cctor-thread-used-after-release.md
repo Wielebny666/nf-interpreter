@@ -6,8 +6,8 @@ When the last static constructor has run, the static-constructor thread is destr
 
 ## Where
 
-- [src/CLR/Core/Thread.cpp](../../../src/CLR/Core/Thread.cpp), `CLR_RT_Thread::Passivate()` (line 455): calls the thread's termination callback (line 496), then reads `m_status` (line 499), writes `m_dlg` (line 502) and calls `ReleaseWhenDeadEx()` (line 505).
-- [src/CLR/Core/Execution.cpp](../../../src/CLR/Core/Execution.cpp): the callback `StaticConstructorTerminationCallback` (line 805) calls `SpawnStaticConstructor(m_cctorThread)`, which, when no static constructor is left, ends with `pCctorThread->DestroyInstance()` (lines 926 and 1023, one per `NANOCLR_APPDOMAINS` variant).
+- [src/CLR/Core/Thread.cpp](../../../../src/CLR/Core/Thread.cpp), `CLR_RT_Thread::Passivate()` (line 455): calls the thread's termination callback (line 496), then reads `m_status` (line 499), writes `m_dlg` (line 502) and calls `ReleaseWhenDeadEx()` (line 505).
+- [src/CLR/Core/Execution.cpp](../../../../src/CLR/Core/Execution.cpp): the callback `StaticConstructorTerminationCallback` (line 805) calls `SpawnStaticConstructor(m_cctorThread)`, which, when no static constructor is left, ends with `pCctorThread->DestroyInstance()` (lines 926 and 1023, one per `NANOCLR_APPDOMAINS` variant).
 - `CLR_RT_Thread::DestroyInstance()` → `Passivate()` (nested) → `ReleaseWhenDeadEx()` → `ReleaseWhenDead()` → `g_CLR_RT_EventCache.Append_Node(this)`.
 
 ## Cause

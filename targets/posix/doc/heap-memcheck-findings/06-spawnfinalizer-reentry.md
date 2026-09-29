@@ -6,7 +6,7 @@
 
 ## Where
 
-[src/CLR/Core/Execution.cpp](../../../src/CLR/Core/Execution.cpp):
+[src/CLR/Core/Execution.cpp](../../../../src/CLR/Core/Execution.cpp):
 
 - `CLR_RT_ExecutionEngine::SpawnFinalizer()` (line 1035): takes `fin = m_finalizersPending.FirstNode()`, calls `CLR_RT_HeapBlock_Delegate::CreateInstance(delegate, fin->m_md, NULL)` (line 1054), then reads `fin->m_object` and releases `fin` with `g_CLR_RT_EventCache.Append_Node(fin)` (line 1062).
 - `CLR_RT_ExecutionEngine::PerformGarbageCollection()` calls `SpawnFinalizer()` after every collection (line 417).

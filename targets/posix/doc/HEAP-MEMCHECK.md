@@ -27,6 +27,8 @@ Errors in native memory outside the managed heap are reported as with any valgri
 
 ## Building
 
+The POSIX dev container, [.devcontainer/POSIX](../../../.devcontainer/POSIX/devcontainer.json), has everything this page needs: the 32-bit toolchain, gdb, valgrind with the 32-bit libc symbols, and the .NET SDK and Mono for the stress application. In VS Code, the tasks and launch configurations in `.vscode` build the preset and the stress application and run it natively, under valgrind, or under valgrind with gdb attached.
+
 ```bash
 cd targets/posix
 cmake --preset posix-x64-memcheck
@@ -53,7 +55,7 @@ The binary also runs without valgrind. The annotations are then a few no-op inst
 
 The self-test checks that the annotations work: it plants known errors in the heap and expects memcheck to report exactly those. Run it after changing the allocator (`CLR_RT_HeapCluster`), the GC, compaction or the hooks themselves, and after updating valgrind.
 
-At the first managed allocation, `RunSelfTest()` in [nanoCLR/HeapAnnotations.cpp](nanoCLR/HeapAnnotations.cpp):
+At the first managed allocation, `RunSelfTest()` in [nanoCLR/HeapAnnotations.cpp](../nanoCLR/HeapAnnotations.cpp):
 
 1. **Read after free.** Creates a string held only in a native `CLR_RT_HeapBlock` the GC cannot see, runs a GC, which frees the string, and reads one of its characters back. The text lies past the first heap block of the object, so it is inaccessible once freed. Expected: `Invalid read of size 1`.
 2. **Read of a freed object's first block, quarantine only.** Reads the last byte of the string's first heap block, which a free-list node would otherwise keep accessible. Expected: `Invalid read of size 1`.
@@ -142,7 +144,7 @@ The quarantine needs more heap. If allocations start failing, raise `NANOCLR_HEA
 
 ## Stress application
 
-Memcheck only finds bugs in code that actually runs. A program that only churns the allocator goes through almost none of the CLR's native code and finds nothing, even at `NANOCLR_GC_STRESS=1`. [tests/HeapStress](tests/HeapStress) is a managed application written to cover as much native code as it can, and to check every result so that corruption that does not crash still shows up.
+Memcheck only finds bugs in code that actually runs. A program that only churns the allocator goes through almost none of the CLR's native code and finds nothing, even at `NANOCLR_GC_STRESS=1`. [tests/HeapStress](../tests/HeapStress) is a managed application written to cover as much native code as it can, and to check every result so that corruption that does not crash still shows up.
 
 | Module | Covers |
 |---|---|
@@ -169,7 +171,7 @@ It runs every module for five rounds and forces a compacting GC between rounds. 
 The application builds on Linux without Visual Studio, with Roslyn from the .NET SDK and the nanoFramework MetadataProcessor run under Mono:
 
 ```bash
-sudo apt-get install dotnet-sdk-8.0 mono-complete     # once
+sudo apt-get install dotnet-sdk-8.0 mono-complete     # once; already in the dev container
 targets/posix/tests/HeapStress/build.sh
 ```
 
@@ -243,7 +245,9 @@ The shared code only has hooks. Without `NANOCLR_HEAP_ANNOTATIONS` they are empt
 | `targets/posix/nanoCLR/CMakeLists.txt` | the `NANO_POSIX_HEAP_MEMCHECK` option |
 | `targets/posix/CMakePresets.json` | the `posix-x64-memcheck` and `posix-x86-memcheck` presets |
 | `targets/posix/tests/HeapStress/` | the stress application and its build script |
-| `targets/posix/heap-memcheck-findings/` | the findings, how they were found, and verification patches |
+| `targets/posix/doc/heap-memcheck-findings/` | the findings, how they were found, and verification patches |
+| `.devcontainer/POSIX/` | the dev container with every tool above |
+| `.vscode/tasks.json`, `.vscode/launch.json` | build, self-test, valgrind runs and debugging with gdb or vgdb |
 
 ## References
 

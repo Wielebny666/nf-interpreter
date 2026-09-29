@@ -13,7 +13,7 @@
 #   - i386 (-m32): ILP32, 12-byte CLR_RT_HeapBlock - same layout as the
 #     embedded ARM targets, which is what makes GC/compaction numbers transfer
 #
-# and carries what the heap memcheck tooling needs (targets/posix/HEAP-MEMCHECK.md):
+# and carries what the heap memcheck tooling needs (targets/posix/doc/HEAP-MEMCHECK.md):
 # valgrind with the 32-bit libc symbols, and the .NET SDK and Mono that
 # targets/posix/tests/HeapStress/build.sh compiles the stress application with.
 #

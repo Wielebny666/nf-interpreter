@@ -10,7 +10,7 @@ namespace HeapStress
 {
     // Runs every module for a fixed number of rounds and checks each result, so the program covers as many native
     // paths of the CLR as it can while the heap is churned by the other modules. It is meant to run on the POSIX host
-    // under valgrind with the heap-annotated build and NANOCLR_GC_STRESS set, see targets/posix/HEAP-MEMCHECK.md.
+    // under valgrind with the heap-annotated build and NANOCLR_GC_STRESS set, see targets/posix/doc/HEAP-MEMCHECK.md.
     //
     // The last line printed is either "HEAPSTRESS RESULT: PASS" or "HEAPSTRESS RESULT: FAIL (<n> failed checks)".
     public static class Program

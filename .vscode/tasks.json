@@ -1,5 +1,5 @@
 {
-    // Tasks of the heap memcheck tooling, see targets/posix/HEAP-MEMCHECK.md.
+    // Tasks of the heap memcheck tooling, see targets/posix/doc/HEAP-MEMCHECK.md.
     // The launch configurations in launch.json use them as preLaunchTask.
     "version": "2.0.0",
     "inputs": [

@@ -2,6 +2,8 @@
 
 This target provides a host build of nanoCLR for macOS and Linux at `targets/posix`.
 
+On this branch it also carries a setup for finding memory bugs in the CLR with valgrind: see [doc/README.md](doc/README.md).
+
 ## Status
 
 The target is fully functional as a managed-code execution host:
@@ -48,7 +50,7 @@ cmake --build build/posix
 
 `NANO_POSIX_HEAP_MEMCHECK`
 - Default: `OFF` (`ON` in the `posix-x64-memcheck` and `posix-x86-memcheck` presets)
-- Describes the managed heap to valgrind memcheck, so native code that reads a managed object after the GC freed it, or reads object memory nothing has written, is reported where it happens. Needs the valgrind headers. See [HEAP-MEMCHECK.md](HEAP-MEMCHECK.md).
+- Describes the managed heap to valgrind memcheck, so native code that reads a managed object after the GC freed it, or reads object memory nothing has written, is reported where it happens. Needs the valgrind headers. See [doc/HEAP-MEMCHECK.md](doc/HEAP-MEMCHECK.md).
 
 ## Running Managed Tests
 
