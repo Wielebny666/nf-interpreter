@@ -132,9 +132,18 @@ Several collections between two safe points still make one compaction, so `1` me
 
 ## Quarantine
 
-A freed block usually goes back to the allocator at once, so a stale pointer soon lands in a new, valid object and memcheck has nothing to report. With `NANOCLR_HEAP_QUARANTINE=1` the objects that die in a collection are kept out of the free list until the next one: `RecoverFromGC` gathers them into separate free blocks that are not linked, with everything but their 4-byte header inaccessible (heap walks read nothing else). The next collection releases them normally.
+The quarantine is there to catch use-after-free that memcheck otherwise misses: native code keeps a pointer to an object the GC has freed and uses it later. Without the quarantine two things hide such an access:
 
-The quarantine needs more heap. If allocations start failing, raise `NANOCLR_HEAP_SIZE_MB`.
+- **Reuse.** A freed block usually goes back to the allocator at once, so a stale pointer soon lands in a new, valid object and memcheck has nothing to report. The quarantine stretches the window in which the access is reported from "until the allocator puts something there" to "until the next collection".
+- **The first heap block.** The sweep turns each run of dead blocks into one free-list node, whose first heap block (id and links) stays accessible. An object that starts such a run, because the block before it is live, therefore has its header and first fields accessible after it is freed, and a stale access to them is never reported, even straight after the GC. That is 8 bytes of data on i386 and 16 on x86-64. In quarantine only the 4-byte id stays accessible. Self-test case 2 checks exactly this.
+
+With `NANOCLR_HEAP_QUARANTINE=1` the objects that die in a collection are kept out of the free list until the next one: `RecoverFromGC` gathers them into separate free blocks that are not linked, with everything but their 4-byte header inaccessible. The next collection releases them normally.
+
+- **The header is the data id.** What stays accessible is the 32-bit `CLR_RT_HeapBlock_Id` at the start of the block: data type, flags and size in heap blocks. That is all a heap walk reads to step over a block. The free-list links are not needed, because the block is on no list, so on x86-64 even the 4-byte padding after the id is inaccessible.
+- **Compaction does not move them.** A quarantined block is marked `DATATYPE_FREEBLOCK` with `HB_Pinned`, like every free block, and compaction steps over pinned blocks. It takes its destinations only from the free list, which does not contain them, so nothing is moved into them either. With `NANOCLR_COMPACT_STRESS`, a stale pointer to a quarantined object still reaches inaccessible memory after a compaction.
+- **They are not merged with free neighbours.** The sweep in `RecoverFromGC` joins adjacent dead blocks into one run, but with quarantine on it ends a run where objects that died in this collection meet blocks that were already free. Old free blocks, including those quarantined in the previous collection, go to the free list as before; the new dead objects become a separate quarantined block next to them. At the next collection that block is no longer an object but a free block, so it joins its neighbours and goes to the free list (`NANOCLR_HEAP_ANNOTATE_RELINK` makes its first heap block writable again for the links).
+
+The quarantine needs more heap: everything that died in the last collection stays unusable, and it cannot be merged with the free space around it until the next one. If allocations start failing, raise `NANOCLR_HEAP_SIZE_MB`.
 
 ## Stress application
 
@@ -219,7 +228,59 @@ Native memory outside the managed heap needs no annotations: on this host `platf
 
 ## How it is built
 
-The shared code only has hooks. Without `NANOCLR_HEAP_ANNOTATIONS` they are empty macros, so nothing changes on other targets.
+### Approach
+
+Memcheck keeps two kinds of shadow state for every byte of the process: an A bit (may the program access it) and V bits (has anything defined its value). Every load and store is checked against them, and a copy carries the V bits of its source to its destination. Its errors come from those bits: an access to a byte without the A bit is an `Invalid read`/`Invalid write`, a branch or a system call on an undefined value is a `Conditional jump ...`/`Use of uninitialised value`.
+
+`malloc` sets these bits for native memory, but the managed heap is one `malloc` block (`HeapLocation` in `Memory.cpp`) that the CLR divides itself. The build therefore sets the bits by hand, with memcheck's client requests, wherever the CLR changes what a part of the heap is:
+
+| Client request | Sets | Used for |
+|---|---|---|
+| `VALGRIND_MAKE_MEM_UNDEFINED` | accessible, value undefined | a new object; the inside of a free or cached block about to be handed out or written into |
+| `VALGRIND_MAKE_MEM_NOACCESS` | not accessible | the inside of a free, cached or quarantined block |
+
+A byte becomes defined again only when the CLR writes it, so nothing marks memory defined explicitly.
+
+Design choices:
+
+- **Stateless requests.** `MAKE_MEM_*` only changes the shadow bits of a range; memcheck keeps no record of objects. The hooks therefore need no bookkeeping of their own and cannot get out of step with the allocator: each one describes the heap as it is at that point. The price is the address description in reports, which only names the whole heap (see [Reading a report](#reading-a-report)).
+- **The heap layout does not change.** Objects keep their size and position, with no red zones and no padding, so the heap is filled and compacted exactly as in a normal build, and the i386 build has the heap blocks of a device. Quarantine is the one exception, and it only delays reuse.
+- **Hooks in shared code, requests in the target.** `src/` only calls macros from `nanoCLR_HeapAnnotations.h`, which are empty unless the target defines `NANOCLR_HEAP_ANNOTATIONS` and supplies `nanoCLR_HeapAnnotations_target.h`. Device builds compile to the same code as before; another checker (ASan, see [References](#references)) only needs another target header.
+- **Memcheck, not mempools or a new tool.** Memory pools (`VALGRIND_MEMPOOL_*`) would give every report the allocation and free stack of the object, but they need a request per object, also when compaction moves it, and compaction moves whole runs of objects with one `memmove` without visiting each one. A separate valgrind tool would have to reimplement the shadow memory memcheck already has.
+
+### Heap block layout
+
+The heap is an array of `CLR_RT_HeapBlock`. An object is a run of them; the first holds the header, a 32-bit `CLR_RT_HeapBlock_Id` (data type, flags and size of the run in heap blocks), and the rest are the object's data.
+
+| Build | `sizeof(CLR_RT_HeapBlock)` | Layout of a heap block |
+|---|---|---|
+| i386 (`posix-x86-*`), like the embedded targets | 12 bytes | id at 0, data at 4..11 |
+| x86-64 (`posix-x64-*`) | 24 bytes | id at 0, 4 bytes of padding, data at 8..23 |
+
+A free block (`DATATYPE_FREEBLOCK`) and a block parked in the event cache (`DATATYPE_CACHEDBLOCK`) are a `CLR_RT_HeapBlock_Node`: the same first heap block, whose data holds the `next` and `prev` links of a doubly linked list. The rest of the run is unused. That is why `FREE` keeps the first heap block accessible and makes only the rest inaccessible: the free-list walk in `ExtractBlocks`, `InsertInOrder` and compaction read the links, and every heap walk (sweep, compaction, heap validation) reads the id to step to the next block. A quarantined block is on no list, so only its id stays accessible.
+
+The annotations work in whole heap blocks, except for the quarantine's 4-byte id. On x86-64 the padding after the id is never written, so it stays undefined in every object; that causes no reports, because memcheck only reports undefined bytes when a decision depends on them, not when they are copied.
+
+### Block life cycle
+
+| Transition | Where | Annotation |
+|---|---|---|
+| free block found for an allocation | `CLR_RT_HeapCluster::ExtractBlocks` | `UNFREE` on the whole free block, so the remainder can get a new node header in the middle of it |
+| remainder of the split | `ExtractBlocks` | `FREE` on the remainder, now its own free-list node |
+| the allocated part | `ExtractBlocks`, after unlinking | `ALLOC`: the whole run including the first block becomes undefined; the CLR then writes the id, and zeroes the object when `HB_InitializeToZero` is set. Without that flag, every field the CLR does not write stays undefined, which is what finds unwritten stack-frame slots |
+| object dies, sweep | `RecoverFromGC` | runs of dead blocks are joined; `RELINK` makes the first block writable (it may be a quarantined block with only its id accessible), the run is linked into the free list and `FREE` hides the rest. A stale pointer to any block but the first of the run is now an `Invalid read` |
+| object dies, with quarantine | `RecoverFromGC` | the run of objects that died in this collection gets a free-block id and `QUARANTINE`; it is not linked (see [Quarantine](#quarantine)) |
+| free block inserted, with coalescing | `CLR_RT_HeapCluster::InsertInOrder` | `FREE` on the merged block, which also hides the node header of a neighbour absorbed into it |
+| compaction, destination | `CLR_RT_GarbageCollector::Heap_Compact` | `UNFREE` on the free region before `memmove` writes live objects into it |
+| compaction, the move | `memmove` | memcheck replaces `memmove` with its own copy, so the V bits travel with the data: an undefined field is still undefined at the new address |
+| compaction, source | `Heap_Compact` → `InsertInOrder` | the vacated range becomes a free block, `FREE`; a raw pointer still holding the old address is now an `Invalid read` |
+| compaction, free region not used | `Heap_Compact` | `FREE` again on a region `UNFREE` opened but nothing was moved into |
+| released to the event cache | `CLR_RT_EventCache::Append_Node` | `FREE`, the same shape as a free block; the block stays alive for the GC but is unused |
+| taken from the event cache | `Extract_Node_Fast`, `Extract_Node_Slow` | `UNFREE`: the rest of the node becomes writable and undefined. The first block keeps its links, because the CLR relies on the links of an unlinked node being null. `Extract_Node_Slow` requeues the unused tail of a larger node with `Append_Node` |
+
+`NANOCLR_HEAP_STRESS_BEFORE_ALLOCATION` in `CLR_RT_ExecutionEngine::ExtractHeapBlocks` is not an annotation: it is the point where GC stress runs a collection, compaction stress schedules one, and the self-test runs, before any heap memory is taken for the allocation.
+
+### Hooks and files
 
 | Hook | Where | Meaning |
 |---|---|---|

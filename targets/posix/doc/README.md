@@ -10,7 +10,7 @@ A setup for finding memory bugs in the native code of the nanoFramework CLR by r
 - [HeapStress](../tests/HeapStress), a managed application that goes through as much of the CLR's native code as it can and checks every result;
 - a dev container with every tool needed, and VS Code tasks and launch configurations to build, run and debug all of it.
 
-How the tooling works in detail is in [HEAP-MEMCHECK.md](HEAP-MEMCHECK.md). Every build option, environment variable and harness option is listed in one place, in [HANDOFF.md, "Reference"](HANDOFF.md#reference-build-options-environment-variables-harness-options). The working notes of the GC/compaction bench and the Wire Protocol debugger on the POSIX host, including the run modes and every launch configuration, are in [HANDOFF.md](HANDOFF.md) (English) and [HANDOFF.pl.md](HANDOFF.pl.md) (Polish), kept in sync.
+How the tooling works in detail, including how memcheck is adapted to the heap blocks of the CLR, is in [HEAP-MEMCHECK.md](HEAP-MEMCHECK.md) (English) and [HEAP-MEMCHECK.pl.md](HEAP-MEMCHECK.pl.md) (Polish), kept in sync. Every build option, environment variable and harness option is listed in one place, in [HANDOFF.md, "Reference"](HANDOFF.md#reference-build-options-environment-variables-harness-options). The working notes of the GC/compaction bench and the Wire Protocol debugger on the POSIX host, including the run modes and every launch configuration, are in [HANDOFF.md](HANDOFF.md) (English) and [HANDOFF.pl.md](HANDOFF.pl.md) (Polish), kept in sync.
 
 ## Goal
 
@@ -90,7 +90,7 @@ HeapStress prints `HEAPSTRESS RESULT: PASS` or `FAIL` as its last line. The proc
 
 | Path | Contents |
 |---|---|
-| `targets/posix/doc/` | this description, [HEAP-MEMCHECK.md](HEAP-MEMCHECK.md), the [findings](heap-memcheck-findings/README.md) and the bench notes ([HANDOFF.md](HANDOFF.md), [HANDOFF.pl.md](HANDOFF.pl.md)) |
+| `targets/posix/doc/` | this description, [HEAP-MEMCHECK.md](HEAP-MEMCHECK.md) ([HEAP-MEMCHECK.pl.md](HEAP-MEMCHECK.pl.md)), the [findings](heap-memcheck-findings/README.md) and the bench notes ([HANDOFF.md](HANDOFF.md), [HANDOFF.pl.md](HANDOFF.pl.md)) |
 | `targets/posix/tests/HeapStress/` | the stress application and its build script |
 | `targets/posix/nanoCLR/HeapAnnotations.cpp` | GC and compaction stress, quarantine and the self-test |
 | `targets/posix/Include/nanoCLR_HeapAnnotations_target.h` | the hooks as memcheck client requests |

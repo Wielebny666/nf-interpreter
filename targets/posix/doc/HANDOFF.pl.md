@@ -1,6 +1,6 @@
 # Host POSIX — budowanie, uruchamianie i debugowanie
 
-Jak zbudować i uruchomić host POSIX CLR, z którego korzystają narzędzia tego repozytorium, jak wgrać na niego aplikację po Wire Protocol i ją debugować, i która konfiguracja uruchomieniowa do czego służy. Zbudowane na nim narzędzia do szukania błędów pamięci opisują [README.md](README.md) i [HEAP-MEMCHECK.md](HEAP-MEMCHECK.md).
+Jak zbudować i uruchomić host POSIX CLR, z którego korzystają narzędzia tego repozytorium, jak wgrać na niego aplikację po Wire Protocol i ją debugować, i która konfiguracja uruchomieniowa do czego służy. Zbudowane na nim narzędzia do szukania błędów pamięci opisują [README.md](README.md) i [HEAP-MEMCHECK.pl.md](HEAP-MEMCHECK.pl.md).
 
 Wersja angielska: [HANDOFF.md](HANDOFF.md); obie są utrzymywane w zgodzie.
 
@@ -50,7 +50,7 @@ bo `targets/posix/CMakeLists.txt` nie ustawia domyślnego.
 | `posix-x86-debug` | `build/posix32-debug` | praca pod gdb |
 | `posix-x86-soak` | `build/posix32-soak` | długie przebiegi, walidacja sterty 3 |
 | `posix-x86-debugger` | `build/posix32-wp` | stos Wire Protocol, debugger po TCP |
-| `posix-x86-memcheck` | `build/posix32-memcheck` | sterta opisana dla valgrinda, GC stress ([HEAP-MEMCHECK.md](HEAP-MEMCHECK.md)) |
+| `posix-x86-memcheck` | `build/posix32-memcheck` | sterta opisana dla valgrinda, GC stress ([HEAP-MEMCHECK.pl.md](HEAP-MEMCHECK.pl.md)) |
 | `posix-x64` | `build/posix64` | kontrola LP64 |
 | `posix-x64-debug` | `build/posix64-debug` | kontrola pod gdb |
 | `posix-x64-soak` | `build/posix64-soak` | soak na LP64, walidacja sterty 3 |
@@ -236,7 +236,7 @@ budowaniem.
 | `networkPort`, `announceHost` (`vgNetworkPort`, `vgAnnounceHost`) | port i adres debuggera po TCP |
 | `flashImage`, `vgFlashImage` | plik symulowanego flasha, domyślnie `/home/nano/nanoclr-flash.img` |
 | `wpTrace` | `NANOCLR_WP_TRACE`: zrzut każdego pakietu Wire Protocol; 0 do pomiarów czasu |
-| `gcStress`, `compactStress`, `quarantine` | ustawienia stresu memcheck, patrz [HEAP-MEMCHECK.md](HEAP-MEMCHECK.md) |
+| `gcStress`, `compactStress`, `quarantine` | ustawienia stresu memcheck, patrz [HEAP-MEMCHECK.pl.md](HEAP-MEMCHECK.pl.md) |
 | `coreFile` | plik core dla konfiguracji „Core dump"; pusty to najnowszy w katalogu głównym repozytorium |
 
 ## Debugger po TCP
@@ -356,7 +356,7 @@ Wszystko, czym da się skonfigurować host, w jednym miejscu.
 | `NANOCLR_HEAP_QUARANTINE` | memcheck | liczba różna od zera trzyma obiekty zwolnione przez GC niedostępne do następnego |
 | `NANOCLR_HEAP_SELFTEST` | memcheck | liczba różna od zera podkłada znane błędy sterty przy pierwszej alokacji zarządzanej |
 
-Ostatnie cztery są w `nanoCLR/HeapAnnotations.cpp` i opisuje je [HEAP-MEMCHECK.md](HEAP-MEMCHECK.md). Skrypty w `.devcontainer/POSIX` czytają też `NANOCLR_FLASH_IMAGE` (domyślnie `~/nanoclr-flash.img`), a `bench-serve.sh` czyta `NANOCLR_BENCH_DIR` (domyślnie `~/nanoclr-bench`).
+Ostatnie cztery są w `nanoCLR/HeapAnnotations.cpp` i opisuje je [HEAP-MEMCHECK.pl.md](HEAP-MEMCHECK.pl.md). Skrypty w `.devcontainer/POSIX` czytają też `NANOCLR_FLASH_IMAGE` (domyślnie `~/nanoclr-flash.img`), a `bench-serve.sh` czyta `NANOCLR_BENCH_DIR` (domyślnie `~/nanoclr-bench`).
 
 ### Opcje harnessu (`nanoFramework.nanoCLR.test`, `nanoCLR/main.cpp`)
 
