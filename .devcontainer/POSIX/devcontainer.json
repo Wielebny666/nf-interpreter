@@ -1,0 +1,24 @@
+{
+	"name": "nanoFramework-POSIX-host (heap memcheck)",
+	"dockerComposeFile": "docker-compose.yml",
+	"service": "posix",
+	"workspaceFolder": "/workspace/nf-interpreter",
+	"shutdownAction": "stopCompose",
+	"customizations": {
+		"vscode": {
+			"settings": {
+				"cmake.generator": "Ninja",
+				"cmake.configureOnOpen": false,
+				"cmake.useCMakePresets": "always",
+				"cmake.sourceDirectory": "/workspace/nf-interpreter/targets/posix"
+			},
+			"extensions": [
+				"ms-vscode.cpptools",
+				"ms-vscode.cmake-tools",
+				"twxs.cmake",
+				"streetsidesoftware.code-spell-checker",
+				"xaver.clang-format"
+			]
+		}
+	}
+}

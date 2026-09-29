@@ -1,0 +1,71 @@
+#
+# Copyright (c) .NET Foundation and Contributors
+# See LICENSE file in the project root for full license information.
+#
+# Dev container for the POSIX host target (targets/posix) and its heap memcheck
+# tooling (targets/posix/HEAP-MEMCHECK.md).
+#
+# By default the image is built locally from Dockerfile.POSIX the first time it
+# is needed:
+#
+#   docker compose -f .devcontainer/POSIX/docker-compose.yml run --rm posix
+#
+# Long-running container instead:
+#   docker compose -f .devcontainer/POSIX/docker-compose.yml up -d
+#   docker compose -f .devcontainer/POSIX/docker-compose.yml exec posix bash
+#
+# Rebuild after changing the Dockerfile:
+#   docker compose -f .devcontainer/POSIX/docker-compose.yml build
+#
+# To use a prebuilt image from a registry instead, set NANOCLR_POSIX_IMAGE,
+# either in the environment or in .devcontainer/POSIX/.env (compose reads .env
+# from the directory of this file), and pull it:
+#
+#   NANOCLR_POSIX_IMAGE=registry.example.com/<group>/<project>/nanoclr-posix:latest
+#   USER_UID=1000
+#   USER_GID=1000
+#
+#   docker compose -f .devcontainer/POSIX/docker-compose.yml pull
+#
+services:
+  posix:
+    image: ${NANOCLR_POSIX_IMAGE:-nanoclr-posix:local}
+
+    # Used when the image above is not present locally. The user is created
+    # with the host UID/GID, so files written to the bind-mounted repo keep the
+    # host owner.
+    build:
+      context: .
+      dockerfile: Dockerfile.POSIX
+      args:
+        USER_UID: ${USER_UID:-1000}
+        USER_GID: ${USER_GID:-1000}
+
+    # A registry image carries a fixed UID, so match the host UID at run time
+    # as well. The image keeps /home/nano world-writable and sets HOME, so an
+    # unmatched UID still has a usable home despite having no passwd entry.
+    user: "${USER_UID:-1000}:${USER_GID:-1000}"
+
+    # Paths are relative to this file, so ../.. is the repo root.
+    volumes:
+      - ../..:/workspace/nf-interpreter
+      - bashhistory:/home/nano/commandhistory
+
+    working_dir: /workspace/nf-interpreter
+
+    # SYS_PTRACE + unconfined seccomp are needed for gdb and for vgdb, which
+    # attaches gdb to a program running under valgrind.
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp=unconfined
+
+    # Reap zombies left behind by gdb / valgrind child processes.
+    init: true
+
+    stdin_open: true
+    tty: true
+    command: /bin/bash
+
+volumes:
+  bashhistory:

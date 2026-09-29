@@ -1,0 +1,130 @@
+#
+# Copyright (c) .NET Foundation and Contributors
+# See LICENSE file in the project root for full license information.
+#
+# Dev container for the POSIX host target (targets/posix).
+#
+# Unlike the sibling dev containers in this folder, this one carries the full
+# recipe instead of a FROM on a published ghcr.io/nanoframework image - there
+# is no prebuilt image for the POSIX host target.
+#
+# Builds both flavours of the host CLR:
+#   - x86-64: fast iteration, native profiling tools
+#   - i386 (-m32): ILP32, 12-byte CLR_RT_HeapBlock - same layout as the
+#     embedded ARM targets, which is what makes GC/compaction numbers transfer
+#
+# and carries what the heap memcheck tooling needs (targets/posix/HEAP-MEMCHECK.md):
+# valgrind with the 32-bit libc symbols, and the .NET SDK and Mono that
+# targets/posix/tests/HeapStress/build.sh compiles the stress application with.
+#
+# Build:
+#   docker build -f .devcontainer/POSIX/Dockerfile.POSIX -t nanoclr-posix .devcontainer/POSIX
+#
+# Run (bind-mount the repo, ptrace enabled so gdb works):
+#   docker run --rm -it \
+#       -v "$PWD":/src \
+#       --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
+#       nanoclr-posix
+#
+# GCC 13 is the Ubuntu 24.04 default. The posix CI job uses GCC 15 and the ARM
+# target uses arm-none-eabi 15.2; to match those add the toolchain PPA:
+#   docker build --build-arg GCC_VERSION=15 ...
+#
+FROM ubuntu:24.04
+
+ARG GCC_VERSION=13
+ARG USER_NAME=nano
+ARG USER_UID=1000
+ARG USER_GID=1000
+ARG VCS_REF=unknown
+ARG IMAGE_VERSION=dev
+
+LABEL org.opencontainers.image.title="nanoclr-posix" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.version="${IMAGE_VERSION}"
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Build system, debugger and profiler.
+# perf is deliberately absent: the packaged build is tied to the container's
+# kernel headers and will not match the host kernel. Use callgrind inside the
+# container, or run perf from the host against the container process.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        binutils \
+        ca-certificates \
+        cmake \
+        curl \
+        file \
+        gdb \
+        git \
+        less \
+        ninja-build \
+        python3 \
+        sudo \
+        unzip \
+        valgrind \
+        clang-format-19 \
+    && update-alternatives --install /usr/bin/clang-format clang-format /usr/bin/clang-format-19 100 \
+    && rm -rf /var/lib/apt/lists/*
+
+# GCC plus the 32-bit multilib runtime, and make it the default toolchain.
+#
+# linux-libc-dev:i386 is required and is NOT pulled in by gcc-multilib: the
+# multilib packages ship 32-bit libc and libstdc++, but the kernel UAPI headers
+# are per-architecture. Without it any -m32 compile that reaches <errno.h> dies
+# on "asm/errno.h: No such file or directory", which is most of the CLR.
+#
+# libc6-dbg:i386 is what valgrind needs for -m32 binaries: without the 32-bit
+# ld.so symbols it aborts at startup on a mandatory strlen redirection. The
+# valgrind package only depends on the amd64 libc6-dbg.
+RUN set -eux; \
+    dpkg --add-architecture i386; \
+    apt-get update; \
+    if [ "${GCC_VERSION}" != "13" ]; then \
+        apt-get install -y --no-install-recommends software-properties-common; \
+        add-apt-repository -y ppa:ubuntu-toolchain-r/test; \
+        apt-get update; \
+    fi; \
+    apt-get install -y --no-install-recommends \
+        "gcc-${GCC_VERSION}" \
+        "g++-${GCC_VERSION}" \
+        "gcc-${GCC_VERSION}-multilib" \
+        "g++-${GCC_VERSION}-multilib" \
+        linux-libc-dev:i386 \
+        libc6-dbg:i386; \
+    update-alternatives --install /usr/bin/gcc gcc "/usr/bin/gcc-${GCC_VERSION}" 100 \
+        --slave /usr/bin/g++ g++ "/usr/bin/g++-${GCC_VERSION}"; \
+    rm -rf /var/lib/apt/lists/*
+
+# Managed side of the stress application: Roslyn from the .NET SDK compiles it,
+# the nanoFramework MetadataProcessor (a .NET Framework tool) runs under Mono to
+# turn it into a .pe. Both come from the Ubuntu archive.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        dotnet-sdk-8.0 \
+        mono-complete \
+    && rm -rf /var/lib/apt/lists/*
+
+# Non-root user matching the host UID/GID, so files created in the bind-mounted
+# repo are not owned by root. Ubuntu 24.04 ships a stock 'ubuntu' user at 1000,
+# which has to go first.
+RUN set -eux; \
+    if getent passwd "${USER_UID}" >/dev/null; then \
+        userdel -r "$(getent passwd "${USER_UID}" | cut -d: -f1)"; \
+    fi; \
+    if ! getent group "${USER_GID}" >/dev/null; then \
+        groupadd -g "${USER_GID}" "${USER_NAME}"; \
+    fi; \
+    useradd -m -u "${USER_UID}" -g "${USER_GID}" -s /bin/bash "${USER_NAME}"; \
+    echo "${USER_NAME} ALL=(root) NOPASSWD:ALL" > "/etc/sudoers.d/${USER_NAME}"; \
+    chmod 0440 "/etc/sudoers.d/${USER_NAME}"; \
+    mkdir -p "/home/${USER_NAME}/commandhistory"; \
+    chmod -R 0777 "/home/${USER_NAME}"
+
+ENV HOME=/home/${USER_NAME}
+
+USER ${USER_NAME}
+WORKDIR /workspace
+
+CMD ["/bin/bash"]
