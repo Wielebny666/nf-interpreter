@@ -10,13 +10,13 @@ A setup for finding memory bugs in the native code of the nanoFramework CLR by r
 - [HeapStress](../tests/HeapStress), a managed application that goes through as much of the CLR's native code as it can and checks every result;
 - a dev container with every tool needed, and VS Code tasks and launch configurations to build, run and debug all of it.
 
-How the tooling works in detail is in [HEAP-MEMCHECK.md](HEAP-MEMCHECK.md).
+How the tooling works in detail is in [HEAP-MEMCHECK.md](HEAP-MEMCHECK.md). Every build option, environment variable and harness option is listed in one place, in [HANDOFF.md, "Reference"](HANDOFF.md#reference-build-options-environment-variables-harness-options). The working notes of the GC/compaction bench and the Wire Protocol debugger on the POSIX host, including the run modes and every launch configuration, are in [HANDOFF.md](HANDOFF.md) (English) and [HANDOFF.pl.md](HANDOFF.pl.md) (Polish), kept in sync.
 
 ## Goal
 
 Find bugs in the shared CLR code (`src/`) that on a device show up only rarely: when a GC or a compaction happens at one particular allocation, or when memory that was freed has not been reused yet. On a device such a bug is a crash that cannot be reproduced; here GC stress makes the timing happen every time, and memcheck names the faulty access and where the memory came from.
 
-The results are the [findings](heap-memcheck-findings/README.md): each one described with how it was found and the evidence, so that it can be turned into a fix for upstream nanoFramework. What has not been examined yet is in [heap-memcheck-findings/TODO.md](heap-memcheck-findings/TODO.md).
+The results are the [findings](heap-memcheck-findings/README.md): each one described with how it was found and the evidence, so that it can be turned into a fix for nanoFramework. What has not been examined yet is in [heap-memcheck-findings/TODO.md](heap-memcheck-findings/TODO.md).
 
 ## Getting started
 
@@ -52,7 +52,7 @@ In VS Code (Run and Debug, and Terminal > Run Task):
 | task "valgrind: heap self-test (x64)" | checks that the hooks report exactly the errors the self-test plants |
 | task "valgrind: HeapStress report (x64 / x86)" | full run under valgrind, report in `build/vg-heapstress-<arch>.log` |
 
-Each of them builds first and asks for the stress settings. From the command line:
+Each of them builds first and asks for the stress settings. `launch.json` also has groups for the Wire Protocol debugger builds (deployment over TCP into a simulated flash, `posix-x86-debugger` and `posix-x64-debugger`) and for the GC bench (`posix-x86`, `-debug`, `-soak`); they are described in [HANDOFF.md](HANDOFF.md), "Launch configurations". From the command line:
 
 ```bash
 # natively: a crash means a bug
@@ -77,24 +77,24 @@ HeapStress prints `HEAPSTRESS RESULT: PASS` or `FAIL` as its last line. The proc
 
 - One file per finding in [heap-memcheck-findings](heap-memcheck-findings), numbered, with Summary, Where, Cause, How it was found, Evidence, Impact (if there is any) and Patch, and a row in the table of its README.
 - A `.patch` file is a verification patch: the change that confirmed the diagnosis, not a reviewed fix.
-- Line numbers in shared code (`src/`) are those of upstream `main`, where the fixes go. Map every frame of a valgrind trace to `main`, and mark frames that exist only in the memcheck build ("memcheck build only: ...") instead of giving them a line. Code under `targets/posix` exists only here and is cited as it is on this branch.
+- Line numbers in shared code (`src/`) are those of `main` of nanoFramework/nf-interpreter at commit `2ff3e42b2` (2026-09-30), the sources without the memcheck hooks that a fix applies to; say which commit when adding a finding. Map every frame of a valgrind trace to them, and mark frames that exist only in the memcheck build ("memcheck build only: ...") instead of giving them a line. Code under `targets/posix` is cited as it is in this repository.
 - Describe one bug per file. Refer to another only by what it is, not by its number, so that each file can go into a pull request on its own.
 - Do not name the applications the tooling was run on, other than HeapStress; call them a production application.
 
 ### Fixing a finding
 
-- Findings are not fixed on this branch. A fix goes on its own branch from upstream `main` (and `develop` if it applies there), containing only that change.
+- Findings are not fixed in this repository. A fix is prepared separately against the nanoFramework sources and contains only that change.
 - Keep the change minimal and without new code comments; the explanation belongs in the commit message and the pull request description.
 
 ## Layout
 
 | Path | Contents |
 |---|---|
-| `targets/posix/doc/` | this description, [HEAP-MEMCHECK.md](HEAP-MEMCHECK.md) and the [findings](heap-memcheck-findings/README.md) |
+| `targets/posix/doc/` | this description, [HEAP-MEMCHECK.md](HEAP-MEMCHECK.md), the [findings](heap-memcheck-findings/README.md) and the bench notes ([HANDOFF.md](HANDOFF.md), [HANDOFF.pl.md](HANDOFF.pl.md)) |
 | `targets/posix/tests/HeapStress/` | the stress application and its build script |
 | `targets/posix/nanoCLR/HeapAnnotations.cpp` | GC and compaction stress, quarantine and the self-test |
 | `targets/posix/Include/nanoCLR_HeapAnnotations_target.h` | the hooks as memcheck client requests |
 | `src/CLR/Include/nanoCLR_HeapAnnotations.h` | the hooks in shared code, empty on every other target |
 | `targets/posix/CMakePresets.json` | the `posix-x64-memcheck` and `posix-x86-memcheck` presets |
-| `.devcontainer/POSIX/` | the dev container |
+| `.devcontainer/POSIX/` | the dev container, `flash-clean.sh` (blank the simulated flash) and `bench-serve.sh` (serve a CLR to a debugger in another container) |
 | `.vscode/tasks.json`, `.vscode/launch.json` | build, run and debug |

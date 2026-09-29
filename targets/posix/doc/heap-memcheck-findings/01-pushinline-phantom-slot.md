@@ -25,7 +25,7 @@ When the interpreter inlines a method, the inlined method starts with one evalua
 
 ## Evidence
 
-Line numbers are those of `main`; frames that exist only in the memcheck build are marked as such.
+Line numbers are those of `main` of nanoFramework/nf-interpreter at commit `2ff3e42b2` (2026-09-30); frames that exist only in the memcheck build are marked as such.
 
 ```
 Conditional jump or move depends on uninitialised value(s)

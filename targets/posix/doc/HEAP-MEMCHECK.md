@@ -43,13 +43,7 @@ The binary also runs without valgrind. The annotations are then a few no-op inst
 
 ## Environment variables
 
-| Variable | Effect |
-|---|---|
-| `NANOCLR_HEAP_SELFTEST=1` | plant known heap errors at the first managed allocation (see [Self-test](#self-test)) |
-| `NANOCLR_GC_STRESS=<n>` | run a full GC before every n-th managed allocation (see [GC stress](#gc-stress)) |
-| `NANOCLR_COMPACT_STRESS=<n>` | schedule a heap compaction after every n-th stress GC (see [Compaction stress](#compaction-stress)) |
-| `NANOCLR_HEAP_QUARANTINE=1` | keep freed objects out of the free list until the next GC (see [Quarantine](#quarantine)) |
-| `NANOCLR_HEAP_SIZE_MB=<n>` | managed heap size, 10 MB by default |
+The memcheck build reads `NANOCLR_HEAP_SELFTEST` ([Self-test](#self-test)), `NANOCLR_GC_STRESS` ([GC stress](#gc-stress)), `NANOCLR_COMPACT_STRESS` ([Compaction stress](#compaction-stress)) and `NANOCLR_HEAP_QUARANTINE` ([Quarantine](#quarantine)), on top of the variables every build reads, such as `NANOCLR_HEAP_SIZE_MB`. All of them, with their exact values, are listed in one place: [HANDOFF.md, "Reference"](HANDOFF.md#reference-build-options-environment-variables-harness-options).
 
 ## Self-test
 
@@ -175,7 +169,7 @@ sudo apt-get install dotnet-sdk-8.0 mono-complete     # once; already in the dev
 targets/posix/tests/HeapStress/build.sh
 ```
 
-The script fetches the packages listed in `packages.config` from NuGet, compiles, and converts the result to `build/heapstress/HeapStress.pe`. It also writes `build/heapstress/pe-files.txt`, the full list of `.pe` files in load order. The package versions are pinned: their native checksums must match the native code compiled into this target, and a package with a different checksum fails to load. This branch loads PE v1 (`NFMRK1`) only, so the script uses MetadataProcessor 3.x.
+The script fetches the packages listed in `packages.config` from NuGet, compiles, and converts the result to `build/heapstress/HeapStress.pe`. It also writes `build/heapstress/pe-files.txt`, the full list of `.pe` files in load order. The package versions are pinned: their native checksums must match the native code compiled into this target, and a package with a different checksum fails to load. This build loads PE v1 (`NFMRK1`) only, so the script uses MetadataProcessor 3.x.
 
 `HeapStress.nfproj` builds the same sources in Visual Studio or VS Code with the nanoFramework extension.
 

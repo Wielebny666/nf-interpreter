@@ -30,6 +30,37 @@
             "description": "NANOCLR_HEAP_SIZE_MB: managed heap size (quarantine needs more)",
             "options": ["10", "16", "32", "64"],
             "default": "10"
+        },
+        {
+            "id": "vgNetworkPort",
+            "type": "promptString",
+            "description": "TCP port for the Wire Protocol debugger",
+            "default": "26000"
+        },
+        {
+            "id": "vgAnnounceHost",
+            "type": "promptString",
+            "description": "Address announced to debuggers",
+            "default": "127.0.0.1"
+        },
+        {
+            "id": "vgFlashImage",
+            "type": "promptString",
+            "description": "File the simulated flash is kept in (what was deployed)",
+            "default": "/home/nano/nanoclr-flash.img"
+        },
+        {
+            "id": "vgHeapMb",
+            "type": "pickString",
+            "description": "Managed heap size in MB",
+            "options": [
+                "8",
+                "16",
+                "32",
+                "64",
+                "128"
+            ],
+            "default": "32"
         }
     ],
     "tasks": [
@@ -191,6 +222,132 @@
                     "endsPattern": "TO DEBUG THIS PROCESS USING GDB"
                 }
             }
+        },
+        {
+            "label": "cmake: build posix-x64-debugger",
+            "type": "shell",
+            "command": "cmake --preset posix-x64-debugger && cmake --build --preset posix-x64-debugger",
+            "options": {
+                "cwd": "${workspaceFolder}/targets/posix"
+            },
+            "group": "build",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "cmake: build posix-x86",
+            "type": "shell",
+            "command": "cmake --preset posix-x86 && cmake --build --preset posix-x86",
+            "options": {
+                "cwd": "${workspaceFolder}/targets/posix"
+            },
+            "group": "build",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "cmake: build posix-x86-debug",
+            "type": "shell",
+            "command": "cmake --preset posix-x86-debug && cmake --build --preset posix-x86-debug",
+            "options": {
+                "cwd": "${workspaceFolder}/targets/posix"
+            },
+            "group": "build",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "cmake: build posix-x86-debugger",
+            "type": "shell",
+            "command": "cmake --preset posix-x86-debugger && cmake --build --preset posix-x86-debugger",
+            "options": {
+                "cwd": "${workspaceFolder}/targets/posix"
+            },
+            "group": "build",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "cmake: build posix-x86-soak",
+            "type": "shell",
+            "command": "cmake --preset posix-x86-soak && cmake --build --preset posix-x86-soak",
+            "options": {
+                "cwd": "${workspaceFolder}/targets/posix"
+            },
+            "group": "build",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        // Runs the Wire Protocol x64 build under valgrind with the flash image, stopped before the first instruction
+        // until gdb connects through vgdb (launch configuration "Wire Protocol x64: run what was deployed, valgrind + gdb").
+        {
+            "label": "valgrind: Wire Protocol x64 (vgdb)",
+            "type": "shell",
+            "dependsOn": "cmake: build posix-x64-debugger",
+            "isBackground": true,
+            "command": "pkill -9 -f '^/usr/bin/valgrind[^ ]* .*--vgdb-prefix=/tmp/vgdb-nanoclr '; exec valgrind --vgdb=yes --vgdb-error=0 --vgdb-prefix=/tmp/vgdb-nanoclr --track-origins=yes --num-callers=30 ${workspaceFolder}/build/posix64-wp/bin/nanoFramework.nanoCLR.test --networkport ${input:vgNetworkPort} --host ${input:vgAnnounceHost} --loopafterexit --flashimage ${input:vgFlashImage}",
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "NANOCLR_HEAP_SIZE_MB": "${input:vgHeapMb}"
+                }
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": {
+                "owner": "valgrind",
+                "pattern": {
+                    "regexp": "^valgrind-task-no-problems$"
+                },
+                "background": {
+                    "activeBegins": true,
+                    "beginsPattern": "Memcheck, a memory error detector",
+                    "endsPattern": "TO DEBUG THIS PROCESS USING GDB"
+                }
+            }
+        },
+        {
+            "label": "prepare: posix-x86-debug + HeapStress",
+            "dependsOn": [
+                "cmake: build posix-x86-debug",
+                "HeapStress: build"
+            ],
+            "dependsOrder": "sequence",
+            "problemMatcher": []
+        },
+        {
+            "label": "prepare: posix-x86 + HeapStress",
+            "dependsOn": [
+                "cmake: build posix-x86",
+                "HeapStress: build"
+            ],
+            "dependsOrder": "sequence",
+            "problemMatcher": []
+        },
+        {
+            "label": "prepare: posix-x86-soak + HeapStress",
+            "dependsOn": [
+                "cmake: build posix-x86-soak",
+                "HeapStress: build"
+            ],
+            "dependsOrder": "sequence",
+            "problemMatcher": []
+        },
+        {
+            "label": "prepare: posix-x86-debugger + HeapStress",
+            "dependsOn": [
+                "cmake: build posix-x86-debugger",
+                "HeapStress: build"
+            ],
+            "dependsOrder": "sequence",
+            "problemMatcher": []
         }
     ]
 }

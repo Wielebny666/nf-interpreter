@@ -1,41 +1,89 @@
 {
-    // Debugging the heap memcheck builds with HeapStress, see targets/posix/doc/HEAP-MEMCHECK.md.
-    //
-    // "native" runs the memcheck build straight under gdb: with GC stress a CLR bug shows up as a crash, and gdb
-    // stops at it. "valgrind + gdb" runs it under valgrind and attaches gdb through vgdb: gdb stops at every error
-    // memcheck reports, at the faulty access. The build and HeapStress are brought up to date first.
+    // Groups: 1-2 are the heap memcheck builds with HeapStress, 3-4 the Wire Protocol debugger builds (deployment
+    // over TCP, simulated flash), 5 the GC/compaction bench. Each name ends with the preset it runs in [brackets];
+    // the preLaunchTask builds that preset first. See targets/posix/doc/README.md and targets/posix/doc/HANDOFF.md.
     "version": "0.2.0",
     "inputs": [
         {
             "id": "gcStress",
             "type": "pickString",
             "description": "NANOCLR_GC_STRESS: full GC before every n-th allocation (0 = off; 1 is the natural choice natively)",
-            "options": ["0", "1", "20", "50", "100"],
+            "options": [
+                "0",
+                "1",
+                "20",
+                "50",
+                "100"
+            ],
             "default": "1"
         },
         {
             "id": "compactStress",
             "type": "pickString",
             "description": "NANOCLR_COMPACT_STRESS: compaction after every n-th stress GC (0 = off, needs GC stress)",
-            "options": ["0", "1", "5"],
+            "options": [
+                "0",
+                "1",
+                "5"
+            ],
             "default": "0"
         },
         {
             "id": "quarantine",
             "type": "pickString",
             "description": "NANOCLR_HEAP_QUARANTINE: keep objects freed by a GC inaccessible until the next one",
-            "options": ["0", "1"],
+            "options": [
+                "0",
+                "1"
+            ],
             "default": "0"
         },
         {
             "id": "heapMb",
             "type": "pickString",
-            "description": "NANOCLR_HEAP_SIZE_MB: managed heap size (quarantine needs more)",
-            "options": ["10", "16", "32", "64"],
+            "description": "NANOCLR_HEAP_SIZE_MB: managed heap size (10 is the host default, 32 matches NXP_MIMXRT1060_EVK; quarantine needs more)",
+            "options": [
+                "8",
+                "10",
+                "16",
+                "32",
+                "64",
+                "128"
+            ],
             "default": "10"
+        },
+        {
+            "id": "networkPort",
+            "type": "promptString",
+            "description": "TCP port for the Wire Protocol debugger",
+            "default": "26000"
+        },
+        {
+            "id": "announceHost",
+            "type": "promptString",
+            "description": "Address announced to debuggers: 127.0.0.1 for a client beside the CLR, the container address for one in another container",
+            "default": "127.0.0.1"
+        },
+        {
+            "id": "flashImage",
+            "type": "promptString",
+            "description": "File the simulated flash is kept in, so a deployment survives a restart of the process. Keep it outside build/; .devcontainer/POSIX/flash-clean.sh blanks it.",
+            "default": "/home/nano/nanoclr-flash.img"
+        },
+        {
+            "id": "wpTrace",
+            "type": "pickString",
+            "description": "Hex dump every Wire Protocol packet. Leave at 0 for any timing run - it costs a printf and a flush per packet.",
+            "options": [
+                "0",
+                "1"
+            ],
+            "default": "0"
         }
     ],
     "configurations": [
+        // Runs HeapStress under gdb; with GC stress a CLR bug is a crash and gdb stops there.
+        // Preset: posix-x64-memcheck (targets/posix/CMakePresets.json)
         {
             "name": "HeapStress x64 - native",
             "presentation": {
@@ -46,13 +94,28 @@
             "request": "launch",
             "preLaunchTask": "prepare: x64 memcheck + HeapStress",
             "program": "${workspaceFolder}/build/posix64-memcheck/bin/nanoFramework.nanoCLR.test",
-            "args": ["build/heapstress/refs", "build/heapstress/HeapStress.pe"],
+            "args": [
+                "build/heapstress/refs",
+                "build/heapstress/HeapStress.pe"
+            ],
             "cwd": "${workspaceFolder}",
             "environment": [
-                { "name": "NANOCLR_GC_STRESS", "value": "${input:gcStress}" },
-                { "name": "NANOCLR_COMPACT_STRESS", "value": "${input:compactStress}" },
-                { "name": "NANOCLR_HEAP_QUARANTINE", "value": "${input:quarantine}" },
-                { "name": "NANOCLR_HEAP_SIZE_MB", "value": "${input:heapMb}" }
+                {
+                    "name": "NANOCLR_GC_STRESS",
+                    "value": "${input:gcStress}"
+                },
+                {
+                    "name": "NANOCLR_COMPACT_STRESS",
+                    "value": "${input:compactStress}"
+                },
+                {
+                    "name": "NANOCLR_HEAP_QUARANTINE",
+                    "value": "${input:quarantine}"
+                },
+                {
+                    "name": "NANOCLR_HEAP_SIZE_MB",
+                    "value": "${input:heapMb}"
+                }
             ],
             "stopAtEntry": false,
             "externalConsole": false,
@@ -71,6 +134,8 @@
                 }
             ]
         },
+        // Runs HeapStress under valgrind; gdb attaches through vgdb and stops at every memcheck report.
+        // Preset: posix-x64-memcheck (targets/posix/CMakePresets.json)
         {
             "name": "HeapStress x64 - valgrind + gdb",
             "presentation": {
@@ -107,6 +172,8 @@
             ],
             "launchCompleteCommand": "exec-continue"
         },
+        // As the x64 variant, on the i386 build with the 12-byte heap block.
+        // Preset: posix-x86-memcheck (targets/posix/CMakePresets.json)
         {
             "name": "HeapStress x86 - native",
             "presentation": {
@@ -117,13 +184,28 @@
             "request": "launch",
             "preLaunchTask": "prepare: x86 memcheck + HeapStress",
             "program": "${workspaceFolder}/build/posix32-memcheck/bin/nanoFramework.nanoCLR.test",
-            "args": ["build/heapstress/refs", "build/heapstress/HeapStress.pe"],
+            "args": [
+                "build/heapstress/refs",
+                "build/heapstress/HeapStress.pe"
+            ],
             "cwd": "${workspaceFolder}",
             "environment": [
-                { "name": "NANOCLR_GC_STRESS", "value": "${input:gcStress}" },
-                { "name": "NANOCLR_COMPACT_STRESS", "value": "${input:compactStress}" },
-                { "name": "NANOCLR_HEAP_QUARANTINE", "value": "${input:quarantine}" },
-                { "name": "NANOCLR_HEAP_SIZE_MB", "value": "${input:heapMb}" }
+                {
+                    "name": "NANOCLR_GC_STRESS",
+                    "value": "${input:gcStress}"
+                },
+                {
+                    "name": "NANOCLR_COMPACT_STRESS",
+                    "value": "${input:compactStress}"
+                },
+                {
+                    "name": "NANOCLR_HEAP_QUARANTINE",
+                    "value": "${input:quarantine}"
+                },
+                {
+                    "name": "NANOCLR_HEAP_SIZE_MB",
+                    "value": "${input:heapMb}"
+                }
             ],
             "stopAtEntry": false,
             "externalConsole": false,
@@ -142,6 +224,8 @@
                 }
             ]
         },
+        // As the x64 variant, on the i386 build with the 12-byte heap block.
+        // Preset: posix-x86-memcheck (targets/posix/CMakePresets.json)
         {
             "name": "HeapStress x86 - valgrind + gdb",
             "presentation": {
@@ -177,6 +261,507 @@
                 }
             ],
             "launchCompleteCommand": "exec-continue"
+        },
+        // Empty CLR that waits for the debugger to deploy an application into the flash image; deploy once, then use "run what was deployed".
+        // Preset: posix-x86-debugger (targets/posix/CMakePresets.json)
+        {
+            "name": "Wire Protocol x86: bare CLR, wait for a deployment [posix-x86-debugger]",
+            "presentation": {
+                "group": "3 Wire Protocol x86 - posix-x86-debugger",
+                "order": 1
+            },
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/posix32-wp/bin/nanoFramework.nanoCLR.test",
+            "args": [
+                "--networkport",
+                "${input:networkPort}",
+                "--host",
+                "${input:announceHost}",
+                "--waitfordebugger",
+                "--loopafterexit",
+                "--flashimage",
+                "${input:flashImage}"
+            ],
+            "cwd": "${workspaceFolder}",
+            "stopAtEntry": false,
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty printing",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "CLR symbols live in the shared library, which loads after start",
+                    "text": "-gdb-set breakpoint pending on",
+                    "ignoreFailures": true
+                }
+            ],
+            "environment": [
+                {
+                    "name": "NANOCLR_HEAP_SIZE_MB",
+                    "value": "${input:heapMb}"
+                },
+                {
+                    "name": "NANOCLR_WP_TRACE",
+                    "value": "${input:wpTrace}"
+                }
+            ],
+            "preLaunchTask": "cmake: build posix-x86-debugger"
+        },
+        // Runs the application stored in the flash image; a debugger can attach over TCP.
+        // Preset: posix-x86-debugger (targets/posix/CMakePresets.json)
+        {
+            "name": "Wire Protocol x86: run what was deployed [posix-x86-debugger]",
+            "presentation": {
+                "group": "3 Wire Protocol x86 - posix-x86-debugger",
+                "order": 2
+            },
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/posix32-wp/bin/nanoFramework.nanoCLR.test",
+            "args": [
+                "--networkport",
+                "${input:networkPort}",
+                "--host",
+                "${input:announceHost}",
+                "--loopafterexit",
+                "--flashimage",
+                "${input:flashImage}"
+            ],
+            "cwd": "${workspaceFolder}",
+            "stopAtEntry": false,
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty printing",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "CLR symbols live in the shared library, which loads after start",
+                    "text": "-gdb-set breakpoint pending on",
+                    "ignoreFailures": true
+                }
+            ],
+            "environment": [
+                {
+                    "name": "NANOCLR_HEAP_SIZE_MB",
+                    "value": "${input:heapMb}"
+                },
+                {
+                    "name": "NANOCLR_SOCK_TRACE",
+                    "value": "0"
+                }
+            ],
+            "preLaunchTask": "cmake: build posix-x86-debugger"
+        },
+        // Runs HeapStress and keeps the debugger port open (--loopafterexit).
+        // Preset: posix-x86-debugger (targets/posix/CMakePresets.json)
+        {
+            "name": "Wire Protocol x86: run HeapStress, debugger port open [posix-x86-debugger]",
+            "presentation": {
+                "group": "3 Wire Protocol x86 - posix-x86-debugger",
+                "order": 3
+            },
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/posix32-wp/bin/nanoFramework.nanoCLR.test",
+            "args": [
+                "--networkport",
+                "${input:networkPort}",
+                "--host",
+                "${input:announceHost}",
+                "--loopafterexit",
+                "build/heapstress/refs",
+                "build/heapstress/HeapStress.pe"
+            ],
+            "cwd": "${workspaceFolder}",
+            "stopAtEntry": false,
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty printing",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "CLR symbols live in the shared library, which loads after start",
+                    "text": "-gdb-set breakpoint pending on",
+                    "ignoreFailures": true
+                }
+            ],
+            "environment": [
+                {
+                    "name": "NANOCLR_WP_TRACE",
+                    "value": "${input:wpTrace}"
+                }
+            ],
+            "preLaunchTask": "prepare: posix-x86-debugger + HeapStress"
+        },
+        // As the x86 variant, on the LP64 build.
+        // Preset: posix-x64-debugger (targets/posix/CMakePresets.json)
+        {
+            "name": "Wire Protocol x64: bare CLR, wait for a deployment [posix-x64-debugger]",
+            "presentation": {
+                "group": "4 Wire Protocol x64 - posix-x64-debugger",
+                "order": 1
+            },
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/posix64-wp/bin/nanoFramework.nanoCLR.test",
+            "args": [
+                "--networkport",
+                "${input:networkPort}",
+                "--host",
+                "${input:announceHost}",
+                "--waitfordebugger",
+                "--loopafterexit",
+                "--flashimage",
+                "${input:flashImage}"
+            ],
+            "cwd": "${workspaceFolder}",
+            "stopAtEntry": false,
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty printing",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "CLR symbols live in the shared library, which loads after start",
+                    "text": "-gdb-set breakpoint pending on",
+                    "ignoreFailures": true
+                }
+            ],
+            "environment": [
+                {
+                    "name": "NANOCLR_HEAP_SIZE_MB",
+                    "value": "${input:heapMb}"
+                },
+                {
+                    "name": "NANOCLR_WP_TRACE",
+                    "value": "${input:wpTrace}"
+                }
+            ],
+            "preLaunchTask": "cmake: build posix-x64-debugger"
+        },
+        // As the x86 variant, on the LP64 build.
+        // Preset: posix-x64-debugger (targets/posix/CMakePresets.json)
+        {
+            "name": "Wire Protocol x64: run what was deployed [posix-x64-debugger]",
+            "presentation": {
+                "group": "4 Wire Protocol x64 - posix-x64-debugger",
+                "order": 2
+            },
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/posix64-wp/bin/nanoFramework.nanoCLR.test",
+            "args": [
+                "--networkport",
+                "${input:networkPort}",
+                "--host",
+                "${input:announceHost}",
+                "--loopafterexit",
+                "--flashimage",
+                "${input:flashImage}"
+            ],
+            "cwd": "${workspaceFolder}",
+            "stopAtEntry": false,
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty printing",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "CLR symbols live in the shared library, which loads after start",
+                    "text": "-gdb-set breakpoint pending on",
+                    "ignoreFailures": true
+                }
+            ],
+            "environment": [
+                {
+                    "name": "NANOCLR_HEAP_SIZE_MB",
+                    "value": "${input:heapMb}"
+                },
+                {
+                    "name": "NANOCLR_SOCK_TRACE",
+                    "value": "0"
+                }
+            ],
+            "preLaunchTask": "cmake: build posix-x64-debugger"
+        },
+        // The task starts valgrind with the flash image and waits; gdb attaches through vgdb and stops at every valgrind error. No heap annotations: use the memcheck configurations for managed-heap errors.
+        // Preset: posix-x64-debugger (targets/posix/CMakePresets.json)
+        {
+            "name": "Wire Protocol x64: run what was deployed, valgrind + gdb [posix-x64-debugger]",
+            "presentation": {
+                "group": "4 Wire Protocol x64 - posix-x64-debugger",
+                "order": 3
+            },
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/posix64-wp/bin/nanoFramework.nanoCLR.test",
+            "cwd": "${workspaceFolder}",
+            "externalConsole": false,
+            "targetArchitecture": "x64",
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty printing",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "CLR symbols live in the shared library, which loads after start",
+                    "text": "-gdb-set breakpoint pending on",
+                    "ignoreFailures": true
+                }
+            ],
+            "customLaunchSetupCommands": [
+                {
+                    "description": "Attach to the valgrind started by the preLaunchTask (program, arguments and environment are set there)",
+                    "text": "target remote | /usr/bin/vgdb --vgdb-prefix=/tmp/vgdb-nanoclr",
+                    "ignoreFailures": false
+                }
+            ],
+            "launchCompleteCommand": "exec-continue",
+            "preLaunchTask": "valgrind: Wire Protocol x64 (vgdb)"
+        },
+        // Runs HeapStress under gdb.
+        // Preset: posix-x86-debug (targets/posix/CMakePresets.json)
+        {
+            "name": "GC bench x86: run HeapStress [posix-x86-debug]",
+            "presentation": {
+                "group": "5 GC bench x86 - posix-x86*",
+                "order": 1
+            },
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/posix32-debug/bin/nanoFramework.nanoCLR.test",
+            "args": [
+                "build/heapstress/refs",
+                "build/heapstress/HeapStress.pe"
+            ],
+            "cwd": "${workspaceFolder}",
+            "stopAtEntry": false,
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty printing",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "CLR symbols live in the shared library, which loads after start",
+                    "text": "-gdb-set breakpoint pending on",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "prepare: posix-x86-debug + HeapStress"
+        },
+        // NOTE: the POSIX host parses --forcegc/--compactionaftergc but never passes them to the execution engine, so they have no effect. For forced collections use a memcheck build with NANOCLR_GC_STRESS / NANOCLR_COMPACT_STRESS.
+        // Preset: posix-x86-debug (targets/posix/CMakePresets.json)
+        {
+            "name": "GC bench x86: --forcegc --compactionaftergc (no effect, see note) [posix-x86-debug]",
+            "presentation": {
+                "group": "5 GC bench x86 - posix-x86*",
+                "order": 2
+            },
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/posix32-debug/bin/nanoFramework.nanoCLR.test",
+            "args": [
+                "--forcegc",
+                "--compactionaftergc",
+                "build/heapstress/refs",
+                "build/heapstress/HeapStress.pe"
+            ],
+            "cwd": "${workspaceFolder}",
+            "stopAtEntry": false,
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty printing",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "CLR symbols live in the shared library, which loads after start",
+                    "text": "-gdb-set breakpoint pending on",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "prepare: posix-x86-debug + HeapStress"
+        },
+        // Stops in CLR_RT_GarbageCollector::Heap_Compact when the CLR schedules a compaction itself.
+        // Preset: posix-x86-debug (targets/posix/CMakePresets.json)
+        {
+            "name": "GC bench x86: break on Heap_Compact [posix-x86-debug]",
+            "presentation": {
+                "group": "5 GC bench x86 - posix-x86*",
+                "order": 3
+            },
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/posix32-debug/bin/nanoFramework.nanoCLR.test",
+            "args": [
+                "--forcegc",
+                "--compactionaftergc",
+                "build/heapstress/refs",
+                "build/heapstress/HeapStress.pe"
+            ],
+            "cwd": "${workspaceFolder}",
+            "stopAtEntry": false,
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty printing",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "CLR symbols live in the shared library, which loads after start",
+                    "text": "-gdb-set breakpoint pending on",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Stop on entry to heap compaction",
+                    "text": "-break-insert CLR_RT_GarbageCollector::Heap_Compact",
+                    "ignoreFailures": false
+                }
+            ],
+            "preLaunchTask": "prepare: posix-x86-debug + HeapStress"
+        },
+        // Optimised build for timing runs; the heap size is chosen at launch.
+        // Preset: posix-x86 (targets/posix/CMakePresets.json)
+        {
+            "name": "GC bench x86: measure, pick heap size [posix-x86]",
+            "presentation": {
+                "group": "5 GC bench x86 - posix-x86*",
+                "order": 4
+            },
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/posix32/bin/nanoFramework.nanoCLR.test",
+            "args": [
+                "--forcegc",
+                "--compactionaftergc",
+                "build/heapstress/refs",
+                "build/heapstress/HeapStress.pe"
+            ],
+            "cwd": "${workspaceFolder}",
+            "stopAtEntry": false,
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty printing",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "CLR symbols live in the shared library, which loads after start",
+                    "text": "-gdb-set breakpoint pending on",
+                    "ignoreFailures": true
+                }
+            ],
+            "environment": [
+                {
+                    "name": "NANOCLR_HEAP_SIZE_MB",
+                    "value": "${input:heapMb}"
+                }
+            ],
+            "preLaunchTask": "prepare: posix-x86 + HeapStress"
+        },
+        // Long runs with NANO_POSIX_VALIDATE_HEAP=3; slow.
+        // Preset: posix-x86-soak (targets/posix/CMakePresets.json)
+        {
+            "name": "GC bench x86: soak, heap validation 3 [posix-x86-soak]",
+            "presentation": {
+                "group": "5 GC bench x86 - posix-x86*",
+                "order": 5
+            },
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/posix32-soak/bin/nanoFramework.nanoCLR.test",
+            "args": [
+                "--forcegc",
+                "--compactionaftergc",
+                "build/heapstress/refs",
+                "build/heapstress/HeapStress.pe"
+            ],
+            "cwd": "${workspaceFolder}",
+            "stopAtEntry": false,
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty printing",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "CLR symbols live in the shared library, which loads after start",
+                    "text": "-gdb-set breakpoint pending on",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "prepare: posix-x86-soak + HeapStress"
+        },
+        // Starts the CLR with nothing to run: banner, then exit a2000000. Checks that the build starts.
+        // Preset: posix-x86-debug (targets/posix/CMakePresets.json)
+        {
+            "name": "GC bench x86: smoke, no assemblies [posix-x86-debug]",
+            "presentation": {
+                "group": "5 GC bench x86 - posix-x86*",
+                "order": 6
+            },
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/posix32-debug/bin/nanoFramework.nanoCLR.test",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "stopAtEntry": false,
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty printing",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "CLR symbols live in the shared library, which loads after start",
+                    "text": "-gdb-set breakpoint pending on",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "cmake: build posix-x86-debug"
         }
     ]
 }

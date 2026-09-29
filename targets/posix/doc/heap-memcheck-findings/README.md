@@ -1,8 +1,8 @@
 # Findings of the heap memcheck tooling
 
-Bugs found with the heap-annotated POSIX build, GC and compaction stress, quarantine and the HeapStress application described in [../HEAP-MEMCHECK.md](../HEAP-MEMCHECK.md). None of them is fixed on this branch. Where a patch exists, it is a **verification patch**: the change used to confirm the diagnosis, which removed the reports and let HeapStress pass under stress. It has not been reviewed as the final fix.
+Bugs found with the heap-annotated POSIX build, GC and compaction stress, quarantine and the HeapStress application described in [../HEAP-MEMCHECK.md](../HEAP-MEMCHECK.md). None of them is fixed in this repository. Where a patch exists, it is a **verification patch**: the change used to confirm the diagnosis, which removed the reports and let HeapStress pass under stress. It has not been reviewed as the final fix.
 
-Line numbers in shared code (`src/`) refer to `main`; stack frames that exist only in the memcheck build are marked as such. Code that exists only on this branch (the POSIX host under `targets/posix`) is cited as it is here.
+Line numbers in shared code (`src/`) are those of `main` of nanoFramework/nf-interpreter at commit `2ff3e42b2` (2026-09-30), the sources without the memcheck hooks that a fix applies to; stack frames that exist only in the memcheck build are marked as such. Code under `targets/posix` is cited as it is in this repository.
 
 What has not been analysed yet is listed in [TODO.md](TODO.md).
 

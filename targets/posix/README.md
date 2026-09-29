@@ -2,7 +2,7 @@
 
 This target provides a host build of nanoCLR for macOS and Linux at `targets/posix`.
 
-On this branch it also carries a setup for finding memory bugs in the CLR with valgrind: see [doc/README.md](doc/README.md).
+It also carries a setup for finding memory bugs in the CLR with valgrind, and the notes on building, running and debugging the host: see [doc/README.md](doc/README.md) and [doc/HANDOFF.md](doc/HANDOFF.md).
 
 ## Status
 
@@ -39,18 +39,9 @@ cmake --build build/posix
 
 ## Configuration Options
 
-`NANO_POSIX_ARCH` *(macOS only)*
-- Default: `arm64`
-- Accepted values: `arm64`, `x86_64`
-- Has no effect on Linux (CMake uses the host architecture automatically).
-
-`NANO_POSIX_ENABLE_SMOKE`
-- Default: `ON`
-- Enables minimal command-line smoke behaviour.
-
-`NANO_POSIX_HEAP_MEMCHECK`
-- Default: `OFF` (`ON` in the `posix-x64-memcheck` and `posix-x86-memcheck` presets)
-- Describes the managed heap to valgrind memcheck, so native code that reads a managed object after the GC freed it, or reads object memory nothing has written, is reported where it happens. Needs the valgrind headers. See [doc/HEAP-MEMCHECK.md](doc/HEAP-MEMCHECK.md).
+The CMake options (`NANO_POSIX_ENABLE_SMOKE`, `NANO_POSIX_ENABLE_NETWORK`, `NANO_POSIX_ENABLE_DEBUGGER`,
+`NANO_POSIX_VALIDATE_HEAP`, `NANO_POSIX_HEAP_MEMCHECK`, `NANO_POSIX_ARCH`), the environment variables the host
+reads and every option of the test harness are listed in one place: [doc/HANDOFF.md, "Reference"](doc/HANDOFF.md#reference-build-options-environment-variables-harness-options).
 
 ## Running Managed Tests
 
