@@ -1,7 +1,8 @@
 {
     // Groups: 1-2 are the heap memcheck builds with HeapStress, 3-4 the Wire Protocol debugger builds (deployment
-    // over TCP, simulated flash), 5 the GC/compaction bench. Each name ends with the preset it runs in [brackets];
-    // the preLaunchTask builds that preset first. See targets/posix/doc/README.md and targets/posix/doc/HANDOFF.md.
+    // over TCP, simulated flash), 5-6 the GC/compaction bench, 7 opens a core dump. Each name in 1-6 ends with the preset
+    // it runs in [brackets], and the preLaunchTask builds that preset first; 7 builds nothing.
+    // See targets/posix/doc/README.md and targets/posix/doc/HANDOFF.md.
     "version": "0.2.0",
     "inputs": [
         {
@@ -762,6 +763,250 @@
                 }
             ],
             "preLaunchTask": "cmake: build posix-x86-debug"
+        },
+        // As the x86 variant, on the LP64 build.
+        // Preset: posix-x64-debug (targets/posix/CMakePresets.json)
+        {
+            "name": "GC bench x64: run HeapStress [posix-x64-debug]",
+            "presentation": {
+                "group": "6 GC bench x64 - posix-x64*",
+                "order": 1
+            },
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/posix64-debug/bin/nanoFramework.nanoCLR.test",
+            "args": [
+                "build/heapstress/refs",
+                "build/heapstress/HeapStress.pe"
+            ],
+            "cwd": "${workspaceFolder}",
+            "stopAtEntry": false,
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty printing",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "CLR symbols live in the shared library, which loads after start",
+                    "text": "-gdb-set breakpoint pending on",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "prepare: posix-x64-debug + HeapStress"
+        },
+        // As the x86 variant, on the LP64 build.
+        // Preset: posix-x64-debug (targets/posix/CMakePresets.json)
+        {
+            "name": "GC bench x64: --forcegc --compactionaftergc (no effect, see note) [posix-x64-debug]",
+            "presentation": {
+                "group": "6 GC bench x64 - posix-x64*",
+                "order": 2
+            },
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/posix64-debug/bin/nanoFramework.nanoCLR.test",
+            "args": [
+                "--forcegc",
+                "--compactionaftergc",
+                "build/heapstress/refs",
+                "build/heapstress/HeapStress.pe"
+            ],
+            "cwd": "${workspaceFolder}",
+            "stopAtEntry": false,
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty printing",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "CLR symbols live in the shared library, which loads after start",
+                    "text": "-gdb-set breakpoint pending on",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "prepare: posix-x64-debug + HeapStress"
+        },
+        // As the x86 variant, on the LP64 build.
+        // Preset: posix-x64-debug (targets/posix/CMakePresets.json)
+        {
+            "name": "GC bench x64: break on Heap_Compact [posix-x64-debug]",
+            "presentation": {
+                "group": "6 GC bench x64 - posix-x64*",
+                "order": 3
+            },
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/posix64-debug/bin/nanoFramework.nanoCLR.test",
+            "args": [
+                "--forcegc",
+                "--compactionaftergc",
+                "build/heapstress/refs",
+                "build/heapstress/HeapStress.pe"
+            ],
+            "cwd": "${workspaceFolder}",
+            "stopAtEntry": false,
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty printing",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "CLR symbols live in the shared library, which loads after start",
+                    "text": "-gdb-set breakpoint pending on",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Stop on entry to heap compaction",
+                    "text": "-break-insert CLR_RT_GarbageCollector::Heap_Compact",
+                    "ignoreFailures": false
+                }
+            ],
+            "preLaunchTask": "prepare: posix-x64-debug + HeapStress"
+        },
+        // As the x86 variant, on the LP64 build.
+        // Preset: posix-x64 (targets/posix/CMakePresets.json)
+        {
+            "name": "GC bench x64: measure, pick heap size [posix-x64]",
+            "presentation": {
+                "group": "6 GC bench x64 - posix-x64*",
+                "order": 4
+            },
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/posix64/bin/nanoFramework.nanoCLR.test",
+            "args": [
+                "--forcegc",
+                "--compactionaftergc",
+                "build/heapstress/refs",
+                "build/heapstress/HeapStress.pe"
+            ],
+            "cwd": "${workspaceFolder}",
+            "stopAtEntry": false,
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty printing",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "CLR symbols live in the shared library, which loads after start",
+                    "text": "-gdb-set breakpoint pending on",
+                    "ignoreFailures": true
+                }
+            ],
+            "environment": [
+                {
+                    "name": "NANOCLR_HEAP_SIZE_MB",
+                    "value": "${input:heapMb}"
+                }
+            ],
+            "preLaunchTask": "prepare: posix-x64 + HeapStress"
+        },
+        // As the x86 variant, on the LP64 build.
+        // Preset: posix-x64-soak (targets/posix/CMakePresets.json)
+        {
+            "name": "GC bench x64: soak, heap validation 3 [posix-x64-soak]",
+            "presentation": {
+                "group": "6 GC bench x64 - posix-x64*",
+                "order": 5
+            },
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/posix64-soak/bin/nanoFramework.nanoCLR.test",
+            "args": [
+                "--forcegc",
+                "--compactionaftergc",
+                "build/heapstress/refs",
+                "build/heapstress/HeapStress.pe"
+            ],
+            "cwd": "${workspaceFolder}",
+            "stopAtEntry": false,
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty printing",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "CLR symbols live in the shared library, which loads after start",
+                    "text": "-gdb-set breakpoint pending on",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "prepare: posix-x64-soak + HeapStress"
+        },
+        // As the x86 variant, on the LP64 build.
+        // Preset: posix-x64-debug (targets/posix/CMakePresets.json)
+        {
+            "name": "GC bench x64: smoke, no assemblies [posix-x64-debug]",
+            "presentation": {
+                "group": "6 GC bench x64 - posix-x64*",
+                "order": 6
+            },
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/posix64-debug/bin/nanoFramework.nanoCLR.test",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "stopAtEntry": false,
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty printing",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "CLR symbols live in the shared library, which loads after start",
+                    "text": "-gdb-set breakpoint pending on",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "cmake: build posix-x64-debug"
+        },
+        // Opens a core dump in gdb: the preLaunchTask picks the core and the program that dumped it. Nothing is rebuilt.
+        // Preset: any; the program is the one recorded in the core
+        {
+            "name": "Core dump: open in gdb (newest or chosen core)",
+            "presentation": {
+                "group": "7 Core dump",
+                "order": 1
+            },
+            "type": "cppdbg",
+            "request": "launch",
+            "preLaunchTask": "core: select core dump",
+            "program": "${workspaceFolder}/build/core-debug/program",
+            "coreDumpPath": "${workspaceFolder}/build/core-debug/core",
+            "cwd": "${workspaceFolder}",
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty printing",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
         }
     ]
 }

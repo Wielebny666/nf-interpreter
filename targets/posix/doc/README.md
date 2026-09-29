@@ -52,7 +52,7 @@ In VS Code (Run and Debug, and Terminal > Run Task):
 | task "valgrind: heap self-test (x64)" | checks that the hooks report exactly the errors the self-test plants |
 | task "valgrind: HeapStress report (x64 / x86)" | full run under valgrind, report in `build/vg-heapstress-<arch>.log` |
 
-Each of them builds first and asks for the stress settings. `launch.json` also has groups for the Wire Protocol debugger builds (deployment over TCP into a simulated flash, `posix-x86-debugger` and `posix-x64-debugger`) and for the GC bench (`posix-x86`, `-debug`, `-soak`); they are described in [HANDOFF.md](HANDOFF.md), "Launch configurations". From the command line:
+Each of them builds first and asks for the stress settings. `launch.json` also has groups for the Wire Protocol debugger builds (deployment over TCP into a simulated flash, `posix-x86-debugger` and `posix-x64-debugger`) and for the GC bench (`posix-x86` and `posix-x64`, each with `-debug` and `-soak`); they are described in [HANDOFF.md](HANDOFF.md), "Launch configurations". From the command line:
 
 ```bash
 # natively: a crash means a bug

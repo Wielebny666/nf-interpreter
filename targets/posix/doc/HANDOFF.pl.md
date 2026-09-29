@@ -167,8 +167,8 @@ przypina nieruszalne bloki w środku sterty.
 
 `.vscode/launch.json` jest podzielony na grupy. W nazwie każdej konfiguracji
 w nawiasie `[...]` stoi preset, którego binarkę uruchamia; komentarz nad nią mówi,
-do czego służy. Każda konfiguracja ma preLaunchTask, który najpierw buduje swój
-preset, a HeapStress tam, gdzie konfiguracja go uruchamia.
+do czego służy. Każda konfiguracja poza tą od core dumpa ma preLaunchTask, który
+najpierw buduje swój preset, a HeapStress tam, gdzie konfiguracja go uruchamia.
 
 ### 1–2 HeapStress — `posix-x64-memcheck`, `posix-x86-memcheck`
 
@@ -197,6 +197,9 @@ Szukanie błędów pamięci w CLR; opisane w [README.md](README.md).
 
 ### 5 GC bench x86 — `posix-x86*`
 
+Build ILP32 ma 12-bajtowy `CLR_RT_HeapBlock` jak wbudowane targety ARM,
+więc układ sterty i zachowanie GC odpowiadają urządzeniu.
+
 | konfiguracja | preset | do czego |
 |---|---|---|
 | run HeapStress | `posix-x86-debug` | HeapStress pod gdb |
@@ -205,6 +208,25 @@ Szukanie błędów pamięci w CLR; opisane w [README.md](README.md).
 | measure, pick heap size | `posix-x86` | przebiegi na buildzie zoptymalizowanym, rozmiar sterty wybierany przy starcie |
 | soak, heap validation 3 | `posix-x86-soak` | długie przebiegi z walidacją sterty; wolne |
 | smoke, no assemblies | `posix-x86-debug` | sam start CLR: baner i wyjście `a2000000` |
+
+### 6 GC bench x64 — `posix-x64*`
+
+Te same sześć konfiguracji na buildzie LP64, czyli konfiguracji docelowej,
+z własnym rozmiarem bloku i wyrównaniem: `posix-x64-debug`, `posix-x64`
+i `posix-x64-soak` w miejsce presetów x86.
+
+### 7 Core dump
+
+| konfiguracja | do czego |
+|---|---|
+| open in gdb (newest or chosen core) | pyta o plik core (pusty = najnowszy `core` albo `core.<pid>` w katalogu głównym repozytorium), odczytuje z niego, który program go zrzucił, i otwiera oba w gdb; nic nie jest przebudowywane |
+
+Proces, który pada, zapisuje `core.<pid>` w swoim katalogu roboczym, czyli dla
+konfiguracji uruchomieniowych i poleceń z tego dokumentu w katalogu głównym
+repozytorium. Zadanie `core: select core dump` dowiązuje core i jego program
+w `build/core-debug/`. Ostrzega, gdy program jest nowszy niż core: program
+przebudowany po awarii już do niego nie pasuje, więc otwórz core przed ponownym
+budowaniem.
 
 ### Parametry pytane przy starcie
 
@@ -215,6 +237,7 @@ Szukanie błędów pamięci w CLR; opisane w [README.md](README.md).
 | `flashImage`, `vgFlashImage` | plik symulowanego flasha, domyślnie `/home/nano/nanoclr-flash.img` |
 | `wpTrace` | `NANOCLR_WP_TRACE`: zrzut każdego pakietu Wire Protocol; 0 do pomiarów czasu |
 | `gcStress`, `compactStress`, `quarantine` | ustawienia stresu memcheck, patrz [HEAP-MEMCHECK.md](HEAP-MEMCHECK.md) |
+| `coreFile` | plik core dla konfiguracji „Core dump"; pusty to najnowszy w katalogu głównym repozytorium |
 
 ## Debugger po TCP
 

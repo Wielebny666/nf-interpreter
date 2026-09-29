@@ -169,8 +169,8 @@ deployment pins unmovable blocks in the middle of the heap.
 
 `.vscode/launch.json` is divided into groups. The name of each configuration
 ends with the preset whose binary it runs, in `[...]`; the comment above it says
-what it is for. Every configuration has a preLaunchTask that builds its preset
-first, and HeapStress where the configuration runs it.
+what it is for. Every configuration except the core dump one has a preLaunchTask
+that builds its preset first, and HeapStress where the configuration runs it.
 
 ### 1-2 HeapStress - `posix-x64-memcheck`, `posix-x86-memcheck`
 
@@ -199,6 +199,9 @@ Finding memory bugs in the CLR; described in [README.md](README.md).
 
 ### 5 GC bench x86 - `posix-x86*`
 
+The ILP32 build has the 12-byte `CLR_RT_HeapBlock` of the embedded ARM targets,
+so heap layout and GC behaviour match a device.
+
 | configuration | preset | for |
 |---|---|---|
 | run HeapStress | `posix-x86-debug` | HeapStress under gdb |
@@ -207,6 +210,25 @@ Finding memory bugs in the CLR; described in [README.md](README.md).
 | measure, pick heap size | `posix-x86` | runs on the optimised build, heap size chosen at launch |
 | soak, heap validation 3 | `posix-x86-soak` | long runs with heap validation; slow |
 | smoke, no assemblies | `posix-x86-debug` | CLR start only: banner and exit `a2000000` |
+
+### 6 GC bench x64 - `posix-x64*`
+
+The same six configurations on the LP64 build, the target configuration, with
+its own block size and alignment: `posix-x64-debug`, `posix-x64` and
+`posix-x64-soak` in place of the x86 presets.
+
+### 7 Core dump
+
+| configuration | for |
+|---|---|
+| open in gdb (newest or chosen core) | asks for a core file (empty = the newest `core` or `core.<pid>` in the repository root), reads from it which program dumped it and opens both in gdb; nothing is rebuilt |
+
+A crashing process writes `core.<pid>` into its working directory, which for the
+launch configurations and the commands in this document is the repository root.
+The task `core: select core dump` links the core and its program into
+`build/core-debug/`. It warns when the program is newer than the core: a program
+rebuilt after the crash no longer matches it, so open the core before building
+again.
 
 ### Parameters asked at launch
 
@@ -217,6 +239,7 @@ Finding memory bugs in the CLR; described in [README.md](README.md).
 | `flashImage`, `vgFlashImage` | simulated flash file, `/home/nano/nanoclr-flash.img` by default |
 | `wpTrace` | `NANOCLR_WP_TRACE`: hex dump of every Wire Protocol packet; 0 for timing runs |
 | `gcStress`, `compactStress`, `quarantine` | memcheck stress settings, see [HEAP-MEMCHECK.md](HEAP-MEMCHECK.md) |
+| `coreFile` | core file for the "Core dump" configuration; empty for the newest in the repository root |
 
 ## Debugger over TCP
 

@@ -61,6 +61,12 @@
                 "128"
             ],
             "default": "32"
+        },
+        {
+            "id": "coreFile",
+            "type": "promptString",
+            "description": "Core file to open, relative to the repository root (empty = the newest core or core.<pid> there)",
+            "default": ""
         }
     ],
     "tasks": [
@@ -283,6 +289,42 @@
                 "$gcc"
             ]
         },
+        {
+            "label": "cmake: build posix-x64",
+            "type": "shell",
+            "command": "cmake --preset posix-x64 && cmake --build --preset posix-x64",
+            "options": {
+                "cwd": "${workspaceFolder}/targets/posix"
+            },
+            "group": "build",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "cmake: build posix-x64-debug",
+            "type": "shell",
+            "command": "cmake --preset posix-x64-debug && cmake --build --preset posix-x64-debug",
+            "options": {
+                "cwd": "${workspaceFolder}/targets/posix"
+            },
+            "group": "build",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "cmake: build posix-x64-soak",
+            "type": "shell",
+            "command": "cmake --preset posix-x64-soak && cmake --build --preset posix-x64-soak",
+            "options": {
+                "cwd": "${workspaceFolder}/targets/posix"
+            },
+            "group": "build",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
         // Runs the Wire Protocol x64 build under valgrind with the flash image, stopped before the first instruction
         // until gdb connects through vgdb (launch configuration "Wire Protocol x64: run what was deployed, valgrind + gdb").
         {
@@ -347,6 +389,49 @@
                 "HeapStress: build"
             ],
             "dependsOrder": "sequence",
+            "problemMatcher": []
+        },
+        {
+            "label": "prepare: posix-x64-debug + HeapStress",
+            "dependsOn": [
+                "cmake: build posix-x64-debug",
+                "HeapStress: build"
+            ],
+            "dependsOrder": "sequence",
+            "problemMatcher": []
+        },
+        {
+            "label": "prepare: posix-x64 + HeapStress",
+            "dependsOn": [
+                "cmake: build posix-x64",
+                "HeapStress: build"
+            ],
+            "dependsOrder": "sequence",
+            "problemMatcher": []
+        },
+        {
+            "label": "prepare: posix-x64-soak + HeapStress",
+            "dependsOn": [
+                "cmake: build posix-x64-soak",
+                "HeapStress: build"
+            ],
+            "dependsOrder": "sequence",
+            "problemMatcher": []
+        },
+        // Picks a core dump (the newest in the repository root unless one is named), reads which program dumped it
+        // and links both into build/core-debug for the "Core dump" launch configuration. It does not build anything:
+        // a rebuilt program no longer matches the core.
+        {
+            "label": "core: select core dump",
+            "type": "shell",
+            "command": "core='${input:coreFile}'; if [ -z \"$core\" ]; then core=$(ls -t core core.* 2>/dev/null | head -1); fi; [ -n \"$core\" ] && [ -f \"$core\" ] || { echo \"no core file (core, core.<pid>) in $PWD\" >&2; exit 1; }; prog=$(file -b \"$core\" | tr ',' '\\n' | sed -n \"s/^ *execfn: '\\(.*\\)'$/\\1/p\"); [ -n \"$prog\" ] || { echo \"$core does not name the program that dumped it\" >&2; exit 1; }; prog=$(realpath -e \"$prog\") || { echo \"program not found; was the build deleted?\" >&2; exit 1; }; [ \"$prog\" -ot \"$core\" ] || echo \"warning: $prog is newer than $core; it was rebuilt after the crash, symbols may not match\" >&2; mkdir -p build/core-debug && ln -sfn \"$(realpath \"$core\")\" build/core-debug/core && ln -sfn \"$prog\" build/core-debug/program && echo \"core:    $(realpath \"$core\")\" && echo \"program: $prog\"",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
             "problemMatcher": []
         }
     ]
