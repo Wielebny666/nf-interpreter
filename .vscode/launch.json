@@ -1,0 +1,182 @@
+{
+    // Debugging the heap memcheck builds with HeapStress, see targets/posix/HEAP-MEMCHECK.md.
+    //
+    // "native" runs the memcheck build straight under gdb: with GC stress a CLR bug shows up as a crash, and gdb
+    // stops at it. "valgrind + gdb" runs it under valgrind and attaches gdb through vgdb: gdb stops at every error
+    // memcheck reports, at the faulty access. The build and HeapStress are brought up to date first.
+    "version": "0.2.0",
+    "inputs": [
+        {
+            "id": "gcStress",
+            "type": "pickString",
+            "description": "NANOCLR_GC_STRESS: full GC before every n-th allocation (0 = off; 1 is the natural choice natively)",
+            "options": ["0", "1", "20", "50", "100"],
+            "default": "1"
+        },
+        {
+            "id": "compactStress",
+            "type": "pickString",
+            "description": "NANOCLR_COMPACT_STRESS: compaction after every n-th stress GC (0 = off, needs GC stress)",
+            "options": ["0", "1", "5"],
+            "default": "0"
+        },
+        {
+            "id": "quarantine",
+            "type": "pickString",
+            "description": "NANOCLR_HEAP_QUARANTINE: keep objects freed by a GC inaccessible until the next one",
+            "options": ["0", "1"],
+            "default": "0"
+        },
+        {
+            "id": "heapMb",
+            "type": "pickString",
+            "description": "NANOCLR_HEAP_SIZE_MB: managed heap size (quarantine needs more)",
+            "options": ["10", "16", "32", "64"],
+            "default": "10"
+        }
+    ],
+    "configurations": [
+        {
+            "name": "HeapStress x64 - native",
+            "presentation": {
+                "group": "1 x64 (posix-x64-memcheck)",
+                "order": 1
+            },
+            "type": "cppdbg",
+            "request": "launch",
+            "preLaunchTask": "prepare: x64 memcheck + HeapStress",
+            "program": "${workspaceFolder}/build/posix64-memcheck/bin/nanoFramework.nanoCLR.test",
+            "args": ["build/heapstress/refs", "build/heapstress/HeapStress.pe"],
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                { "name": "NANOCLR_GC_STRESS", "value": "${input:gcStress}" },
+                { "name": "NANOCLR_COMPACT_STRESS", "value": "${input:compactStress}" },
+                { "name": "NANOCLR_HEAP_QUARANTINE", "value": "${input:quarantine}" },
+                { "name": "NANOCLR_HEAP_SIZE_MB", "value": "${input:heapMb}" }
+            ],
+            "stopAtEntry": false,
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty printing",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "CLR symbols live in the shared library, which loads after start",
+                    "text": "-gdb-set breakpoint pending on",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "HeapStress x64 - valgrind + gdb",
+            "presentation": {
+                "group": "1 x64 (posix-x64-memcheck)",
+                "order": 2
+            },
+            "type": "cppdbg",
+            "request": "launch",
+            "preLaunchTask": "valgrind: HeapStress x64 (vgdb)",
+            "program": "${workspaceFolder}/build/posix64-memcheck/bin/nanoFramework.nanoCLR.test",
+            "cwd": "${workspaceFolder}",
+            "externalConsole": false,
+            "targetArchitecture": "x64",
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty printing",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "CLR symbols live in the shared library, which loads after start",
+                    "text": "-gdb-set breakpoint pending on",
+                    "ignoreFailures": true
+                }
+            ],
+            "customLaunchSetupCommands": [
+                {
+                    "description": "Attach to the valgrind started by the preLaunchTask (program, arguments and environment are set there)",
+                    "text": "target remote | /usr/bin/vgdb --vgdb-prefix=/tmp/vgdb-heapstress-x64",
+                    "ignoreFailures": false
+                }
+            ],
+            "launchCompleteCommand": "exec-continue"
+        },
+        {
+            "name": "HeapStress x86 - native",
+            "presentation": {
+                "group": "2 x86 (posix-x86-memcheck)",
+                "order": 1
+            },
+            "type": "cppdbg",
+            "request": "launch",
+            "preLaunchTask": "prepare: x86 memcheck + HeapStress",
+            "program": "${workspaceFolder}/build/posix32-memcheck/bin/nanoFramework.nanoCLR.test",
+            "args": ["build/heapstress/refs", "build/heapstress/HeapStress.pe"],
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                { "name": "NANOCLR_GC_STRESS", "value": "${input:gcStress}" },
+                { "name": "NANOCLR_COMPACT_STRESS", "value": "${input:compactStress}" },
+                { "name": "NANOCLR_HEAP_QUARANTINE", "value": "${input:quarantine}" },
+                { "name": "NANOCLR_HEAP_SIZE_MB", "value": "${input:heapMb}" }
+            ],
+            "stopAtEntry": false,
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty printing",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "CLR symbols live in the shared library, which loads after start",
+                    "text": "-gdb-set breakpoint pending on",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "HeapStress x86 - valgrind + gdb",
+            "presentation": {
+                "group": "2 x86 (posix-x86-memcheck)",
+                "order": 2
+            },
+            "type": "cppdbg",
+            "request": "launch",
+            "preLaunchTask": "valgrind: HeapStress x86 (vgdb)",
+            "program": "${workspaceFolder}/build/posix32-memcheck/bin/nanoFramework.nanoCLR.test",
+            "cwd": "${workspaceFolder}",
+            "externalConsole": false,
+            "targetArchitecture": "x86",
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty printing",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "CLR symbols live in the shared library, which loads after start",
+                    "text": "-gdb-set breakpoint pending on",
+                    "ignoreFailures": true
+                }
+            ],
+            "customLaunchSetupCommands": [
+                {
+                    "description": "Attach to the valgrind started by the preLaunchTask (program, arguments and environment are set there)",
+                    "text": "target remote | /usr/bin/vgdb --vgdb-prefix=/tmp/vgdb-heapstress-x86",
+                    "ignoreFailures": false
+                }
+            ],
+            "launchCompleteCommand": "exec-continue"
+        }
+    ]
+}

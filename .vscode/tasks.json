@@ -1,0 +1,196 @@
+{
+    // Tasks of the heap memcheck tooling, see targets/posix/HEAP-MEMCHECK.md.
+    // The launch configurations in launch.json use them as preLaunchTask.
+    "version": "2.0.0",
+    "inputs": [
+        {
+            "id": "gcStress",
+            "type": "pickString",
+            "description": "NANOCLR_GC_STRESS: full GC before every n-th allocation (0 = off; 20-50 is a reasonable rate under valgrind)",
+            "options": ["0", "1", "20", "50", "100"],
+            "default": "50"
+        },
+        {
+            "id": "compactStress",
+            "type": "pickString",
+            "description": "NANOCLR_COMPACT_STRESS: compaction after every n-th stress GC (0 = off, needs GC stress)",
+            "options": ["0", "1", "5"],
+            "default": "0"
+        },
+        {
+            "id": "quarantine",
+            "type": "pickString",
+            "description": "NANOCLR_HEAP_QUARANTINE: keep objects freed by a GC inaccessible until the next one",
+            "options": ["0", "1"],
+            "default": "0"
+        },
+        {
+            "id": "heapMb",
+            "type": "pickString",
+            "description": "NANOCLR_HEAP_SIZE_MB: managed heap size (quarantine needs more)",
+            "options": ["10", "16", "32", "64"],
+            "default": "10"
+        }
+    ],
+    "tasks": [
+        {
+            "label": "cmake: build posix-x64-memcheck",
+            "type": "shell",
+            "command": "cmake --preset posix-x64-memcheck && cmake --build --preset posix-x64-memcheck",
+            "options": {
+                "cwd": "${workspaceFolder}/targets/posix"
+            },
+            "group": "build",
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "cmake: build posix-x86-memcheck",
+            "type": "shell",
+            "command": "cmake --preset posix-x86-memcheck && cmake --build --preset posix-x86-memcheck",
+            "options": {
+                "cwd": "${workspaceFolder}/targets/posix"
+            },
+            "group": "build",
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            // Fetches the pinned packages once, then compiles to build/heapstress.
+            "label": "HeapStress: build",
+            "type": "shell",
+            "command": "${workspaceFolder}/targets/posix/tests/HeapStress/build.sh",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "prepare: x64 memcheck + HeapStress",
+            "dependsOn": ["cmake: build posix-x64-memcheck", "HeapStress: build"],
+            "dependsOrder": "sequence",
+            "problemMatcher": []
+        },
+        {
+            "label": "prepare: x86 memcheck + HeapStress",
+            "dependsOn": ["cmake: build posix-x86-memcheck", "HeapStress: build"],
+            "dependsOrder": "sequence",
+            "problemMatcher": []
+        },
+        {
+            // The self-test alone, with the scripted check from HEAP-MEMCHECK.md. Run it after changing the
+            // allocator, the GC, compaction or the hooks, and after updating valgrind.
+            "label": "valgrind: heap self-test (x64)",
+            "type": "shell",
+            "dependsOn": "prepare: x64 memcheck + HeapStress",
+            "command": "log=build/vg-selftest-x64.log; NANOCLR_HEAP_SELFTEST=1 NANOCLR_HEAP_QUARANTINE=${input:quarantine} valgrind --track-origins=yes --num-callers=8 --log-file=$log build/posix64-memcheck/bin/nanoFramework.nanoCLR.test build/heapstress/refs build/heapstress/HeapStress.pe | grep '^HEAPSTRESS RESULT'; section() { sed -n '/self-test: expect/,/self-test: done/p' $log; }; want=$(section | grep -oE 'expect [0-9]+ errors' | grep -oE '[0-9]+'); n=$(section | grep -cE '^==[0-9]+== (Invalid read|Conditional jump)'); at=$(section | grep -A1 -E '^==[0-9]+== (Invalid read|Conditional jump)' | grep -c 'RunSelfTest()'); echo \"log: $log\"; [ -n \"$want\" ] && [ \"$n\" -eq \"$want\" ] && [ \"$at\" -eq \"$want\" ] && echo 'heap self-test OK' || { echo \"heap self-test FAILED (expected $want, got $n, $at in RunSelfTest)\"; exit 1; }",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": []
+        },
+        {
+            // A full HeapStress run under valgrind without a debugger; the report goes to build/vg-heapstress-<arch>.log.
+            "label": "valgrind: HeapStress report (x64)",
+            "type": "shell",
+            "dependsOn": "prepare: x64 memcheck + HeapStress",
+            "command": "valgrind --track-origins=yes --num-callers=30 --log-file=build/vg-heapstress-x64.log build/posix64-memcheck/bin/nanoFramework.nanoCLR.test build/heapstress/refs build/heapstress/HeapStress.pe | grep ^HEAPSTRESS; grep 'ERROR SUMMARY' build/vg-heapstress-x64.log",
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "NANOCLR_HEAP_SELFTEST": "1",
+                    "NANOCLR_GC_STRESS": "${input:gcStress}",
+                    "NANOCLR_COMPACT_STRESS": "${input:compactStress}",
+                    "NANOCLR_HEAP_QUARANTINE": "${input:quarantine}",
+                    "NANOCLR_HEAP_SIZE_MB": "${input:heapMb}"
+                }
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "valgrind: HeapStress report (x86)",
+            "type": "shell",
+            "dependsOn": "prepare: x86 memcheck + HeapStress",
+            "command": "valgrind --track-origins=yes --num-callers=30 --log-file=build/vg-heapstress-x86.log build/posix32-memcheck/bin/nanoFramework.nanoCLR.test build/heapstress/refs build/heapstress/HeapStress.pe | grep ^HEAPSTRESS; grep 'ERROR SUMMARY' build/vg-heapstress-x86.log",
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "NANOCLR_HEAP_SELFTEST": "1",
+                    "NANOCLR_GC_STRESS": "${input:gcStress}",
+                    "NANOCLR_COMPACT_STRESS": "${input:compactStress}",
+                    "NANOCLR_HEAP_QUARANTINE": "${input:quarantine}",
+                    "NANOCLR_HEAP_SIZE_MB": "${input:heapMb}"
+                }
+            },
+            "problemMatcher": []
+        },
+        {
+            // Runs HeapStress under valgrind, stopped before the first instruction until gdb connects through
+            // vgdb (launch configuration "HeapStress x64 - valgrind + gdb"). gdb then stops at every error memcheck
+            // reports; the self-test errors come first. The report goes to this task's terminal. pkill ends one
+            // left from an earlier session (only SIGKILL ends one still waiting for gdb); the ^ anchor keeps it off
+            // this shell, whose command line holds the same text.
+            "label": "valgrind: HeapStress x64 (vgdb)",
+            "type": "shell",
+            "dependsOn": "prepare: x64 memcheck + HeapStress",
+            "isBackground": true,
+            "command": "pkill -9 -f '^/usr/bin/valgrind[^ ]* .*--vgdb-prefix=/tmp/vgdb-heapstress-x64 '; exec valgrind --vgdb=yes --vgdb-error=0 --vgdb-prefix=/tmp/vgdb-heapstress-x64 --track-origins=yes --num-callers=30 ${workspaceFolder}/build/posix64-memcheck/bin/nanoFramework.nanoCLR.test build/heapstress/refs build/heapstress/HeapStress.pe",
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "NANOCLR_HEAP_SELFTEST": "1",
+                    "NANOCLR_GC_STRESS": "${input:gcStress}",
+                    "NANOCLR_COMPACT_STRESS": "${input:compactStress}",
+                    "NANOCLR_HEAP_QUARANTINE": "${input:quarantine}",
+                    "NANOCLR_HEAP_SIZE_MB": "${input:heapMb}"
+                }
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": {
+                "owner": "valgrind",
+                "pattern": {
+                    "regexp": "^valgrind-task-no-problems$"
+                },
+                "background": {
+                    "activeBegins": true,
+                    "beginsPattern": "Memcheck, a memory error detector",
+                    "endsPattern": "TO DEBUG THIS PROCESS USING GDB"
+                }
+            }
+        },
+        {
+            "label": "valgrind: HeapStress x86 (vgdb)",
+            "type": "shell",
+            "dependsOn": "prepare: x86 memcheck + HeapStress",
+            "isBackground": true,
+            "command": "pkill -9 -f '^/usr/bin/valgrind[^ ]* .*--vgdb-prefix=/tmp/vgdb-heapstress-x86 '; exec valgrind --vgdb=yes --vgdb-error=0 --vgdb-prefix=/tmp/vgdb-heapstress-x86 --track-origins=yes --num-callers=30 ${workspaceFolder}/build/posix32-memcheck/bin/nanoFramework.nanoCLR.test build/heapstress/refs build/heapstress/HeapStress.pe",
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "NANOCLR_HEAP_SELFTEST": "1",
+                    "NANOCLR_GC_STRESS": "${input:gcStress}",
+                    "NANOCLR_COMPACT_STRESS": "${input:compactStress}",
+                    "NANOCLR_HEAP_QUARANTINE": "${input:quarantine}",
+                    "NANOCLR_HEAP_SIZE_MB": "${input:heapMb}"
+                }
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": {
+                "owner": "valgrind",
+                "pattern": {
+                    "regexp": "^valgrind-task-no-problems$"
+                },
+                "background": {
+                    "activeBegins": true,
+                    "beginsPattern": "Memcheck, a memory error detector",
+                    "endsPattern": "TO DEBUG THIS PROCESS USING GDB"
+                }
+            }
+        }
+    ]
+}
