@@ -303,10 +303,143 @@ TCP, gdy string zawiera `:` i nie zaczyna się od `COM`. Sesja attach i breakpoi
 działają. Do wgrania aplikacji trzeba wpisu `launch` z `deployAssemblies: true` —
 `attach` niczego nie wgrywa.
 
+Wymaga to rozszerzenia zbudowanego z poprawkami biblioteki debuggera, zob.
+[VSCODE-EXTENSION.pl.md](VSCODE-EXTENSION.pl.md).
+
 Biblioteka debuggera pomija zapis regionu, który ma już tę samą zawartość
 (porównuje CRC przez `Monitor_CheckMemory`), ale nadal restartuje urządzenie
 i raportuje sukces. Drugi deploy tej samej aplikacji trwa więc ułamek pierwszego
 i nic nie wysyła. Do mierzenia deploymentu zaczynaj od pustego flasha.
+
+## Debugowanie i testy przez Wire Protocol krok po kroku
+
+Cała droga od pustego CLR do breakpointu w C# i do uruchomienia testów na
+„urządzeniu”. Kroki sprawdzono na `posix-x64-debugger` z mostkiem debugowania
+zbudowanym jak w [VSCODE-EXTENSION.pl.md](VSCODE-EXTENSION.pl.md), sterowanym
+tymi samymi komendami mostka, które rozszerzenie wysyła przy `launch` i przy
+„Run on Device”; interfejs VS Code nad mostkiem nie był częścią tego
+sprawdzenia.
+
+### 1. Gdzie to działa
+
+| układ | adres CLR dla rozszerzenia |
+|---|---|
+| wszystko w usłudze `full` | `127.0.0.1:26000` |
+| CLR w `posix`, rozszerzenie w `builder` | adres IPv4 kontenera `posix`: `getent hosts posix` wewnątrz `builder` |
+
+CLR nasłuchuje na wszystkich interfejsach; `--host` to tylko adres, który
+ogłasza. Mostek przyjmuje **wyłącznie adres IPv4** (`tcpip://a.b.c.d:port` albo
+`a.b.c.d:port`), nie nazwę hosta, więc `posix:26000` nie zadziała.
+
+Rozszerzenie potrzebuje runtime'u .NET 10 do uruchomienia mostka; `posix` go
+nie ma, `builder` i `full` mają.
+
+### 2. Zbudowanie i uruchomienie CLR
+
+```bash
+cd targets/posix
+cmake --preset posix-x64-debugger && cmake --build --preset posix-x64-debugger
+cd ../..
+./build/posix64-wp/bin/nanoFramework.nanoCLR.test \
+    --networkport 26000 --host 127.0.0.1 \
+    --waitfordebugger --loopafterexit --flashimage ~/nanoclr-flash.img
+```
+
+Wypisuje `Wire Protocol: listening on tcpip://127.0.0.1:26000` i czeka. W VS Code
+to samo robi konfiguracja „Wire Protocol x64: bare CLR, wait for a deployment”,
+która dodatkowo uruchamia CLR pod gdb (zob. krok 6). Build x86 wygląda tak samo
+z `posix-x86-debugger` i `build/posix32-wp`.
+
+### 3. Zbudowanie aplikacji
+
+Debugger potrzebuje w **jednym katalogu** wszystkich `.pe` do wgrania, a dla
+aplikacji także jej `.pdbx` i `.pdb`: rozszerzenie wgrywa wszystkie `*.pe`
+z katalogu i z tego samego miejsca czyta symbole. `.nfproj` zbudowany przez
+rozszerzenie (`bin/Debug`) ma taki układ. Skrypty budujące w `targets/posix/tests`
+kładą referencje w `refs/`, więc trzeba je skopiować razem:
+
+```bash
+targets/posix/tests/GCCompactionSoak/build.sh --out build/app
+mkdir -p build/app/deploy
+cp build/app/refs/*.pe build/app/*.pe build/app/*.pdbx build/app/*.pdb build/app/deploy/
+```
+
+Wersje pakietów muszą być tymi, których natywne sumy kontrolne pasują do tego
+hosta (PE v1, `NFMRK1`), jak w przypiętych tam plikach `packages.config`. Kod C#,
+który w trakcie działania sprawdza atrybuty, wymaga `/langversion:10` lub
+niższego, zob. [Znane problemy](#znane-problemy-hosta).
+
+### 4. Debugowanie aplikacji
+
+`.vscode/launch.json` workspace'u z aplikacją:
+
+```json
+{
+    "type": "nanoframework",
+    "request": "launch",
+    "name": "nanoFramework: POSIX host",
+    "program": "${workspaceFolder}/build/app/deploy/GCCompactionSoak.pe",
+    "device": "127.0.0.1:26000",
+    "deployAssemblies": true,
+    "stopOnEntry": false
+}
+```
+
+- `program` to główny `.pe`; wgrywany jest jego katalog. Katalog też zadziała,
+  ale główny zestaw jest wtedy odgadywany tylko ze ścieżki
+  `<projekt>/bin/Debug`.
+- F5 wysyła po kolei: wczytanie symboli, deploy, breakpointy, ustawienia
+  wyjątków, start. Pierwszy deploy małej aplikacji z mscorlib trwa po TCP około
+  5 s.
+- `"request": "attach"` z `device` i `program` (dla symboli) niczego nie wgrywa:
+  uruchom CLR z aplikacją już we flashu (tryb 3, „run what was deployed”)
+  i podłącz się do niego.
+
+Wyjście `Debug.WriteLine` aplikacji widać w Debug Console i w terminalu CLR.
+
+### 5. Testy
+
+Projekt testowy korzysta z `nanoFramework.TestFramework`; na tym hoście
+sprawdzona jest wersja **3.0.80**, wersji 4.0 preview nie próbowano. Zestaw
+testowy musi się nazywać `NFUnitTest`: `nanoFramework.UnitTestLauncher` ładuje go
+po tej nazwie.
+
+Bez debuggera (tryb 1), w tej kolejności:
+
+```bash
+./build/posix64/bin/nanoFramework.nanoCLR.test \
+    mscorlib.pe nanoFramework.UnitTestLauncher.pe nanoFramework.TestFramework.pe NFUnitTest.pe
+```
+
+Każdy test wypisuje jedną linię, `Test passed,<Namespace.Class.Method>.0,<ms>`
+albo `Test failed,<Namespace.Class.Method>.0,<komunikat>` (po stosie asercji),
+a przebieg kończy się `Done.`. **Brak jakichkolwiek linii przed `Done.`**
+oznacza, że launcher nie znalazł testów: inna nazwa zestawu albo problem
+z atrybutami ze [Znanych problemów](#znane-problemy-hosta).
+
+Przez Wire Protocol, z Test Explorera: „Run on Device”, z adresem
+w ustawieniach workspace'u:
+
+```json
+"nanoFramework.test.hardwarePort": "127.0.0.1:26000"
+```
+
+Rozszerzenie wgrywa `bin/<Configuration>` projektu testowego, uruchamia go bez
+zatrzymania i czyta te same linie z wyjścia aż do `Done.`. CLR musi być
+uruchomiony jak w kroku 2.
+
+Żeby debugować test, użyj wpisu `launch` z kroku 4 z `program` wskazującym na
+`NFUnitTest.pe` w katalogu, w którym są też `mscorlib.pe`,
+`nanoFramework.UnitTestLauncher.pe` i `nanoFramework.TestFramework.pe`;
+breakpointy w metodach testowych zatrzymują jak w aplikacji.
+
+### 6. CLR i kod C# jednocześnie
+
+Konfiguracje „Wire Protocol” uruchamiają CLR pod gdb, więc breakpointów C++
+i sesji C# rozszerzenia można używać razem. Gdy gdb trzyma proces, wątek Wire
+Protocol też stoi, a rozszerzenie po 30 s przestaje czekać na odpowiedź mostka,
+więc trwająca komenda C# się nie udaje. Zatrzymania w C++ trzymaj krótko albo
+ustaw breakpointy C++ przed rozpoczęciem sesji C#.
 
 ## Interpreter i wątek debuggera
 
@@ -388,3 +521,11 @@ Ostatnie cztery są w `nanoCLR/HeapAnnotations.cpp` i opisuje je [HEAP-MEMCHECK.
 3. **Brak ostrzeżenia o zdublowanych assembly**, patrz „Nie mieszaj trybu 1 z 2".
 4. **Kod wyjścia 134 po programie, który używał gniazd**: znalezisko
    [4](heap-memcheck-findings/04-readiness-monitor-exit-abort.md).
+5. **Atrybuty są błędne w C# 11 i nowszym.** Zestaw skompilowany
+   z `/langversion:11` lub nowszym (także `latest`) ma w trakcie działania
+   pomieszane atrybuty: `GetCustomAttributes` na klasie z `[TestClass]` zwraca
+   wygenerowany przez kompilator `Microsoft.CodeAnalysis.EmbeddedAttribute`,
+   a metoda z `[TestMethod]` nie zwraca żadnego. `UnitTestLauncher` nie znajduje
+   wtedy testów i wypisuje tylko `Done.`. Z `/langversion:10` ten sam kod działa.
+   Zaobserwowane z MetadataProcessorem 3.0.104; czy winny jest procesor, czy
+   CLR, jeszcze nie wiadomo.
