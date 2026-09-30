@@ -39,6 +39,8 @@ The preset inherits `posix-x64-debugger` (Debug with the Wire Protocol debugger)
 
 `posix-x86-memcheck` is the same for i386 (`build/posix32-memcheck`). That build has the 12-byte `CLR_RT_HeapBlock` of the embedded targets, so it is the one closest to a device. It needs the 32-bit multilib toolchain like the other `posix-x86` presets, and `libc6-dbg:i386` for valgrind. Everything below works the same with either build.
 
+Heap validation works with this build up to level 2; both presets leave it at 0. CMake refuses to configure `NANO_POSIX_HEAP_MEMCHECK` together with `NANO_POSIX_VALIDATE_HEAP` 3 or 4, because from level 3 on `ValidateCluster` reads the first data word of every heap block as a free-list link, although most blocks are objects. Under valgrind that gives millions of reports on object memory, and with the [quarantine](#quarantine) the CLR crashes even without valgrind, because a quarantined block holds the dead object's data there instead of links. See [finding 8](heap-memcheck-findings/08-validatecluster-reads-object-data.md).
+
 The binary also runs without valgrind. The annotations are then a few no-op instructions each.
 
 ## Environment variables
@@ -99,6 +101,8 @@ Invalid read of size 1
 | further errors between the markers | false positives from the allocator or the GC itself, i.e. a bug in the hooks |
 | errors after `self-test: done` | unrelated to the self-test: findings in the application or the CLR |
 
+The self-test plants no error in compaction or in the coalescing of `InsertInOrder`. Those hooks are checked only indirectly: HeapStress under [compaction stress](#compaction-stress) must run without reports from `Heap_Compact` or `InsertInOrder`.
+
 A scripted check, for CI:
 
 ```bash
@@ -126,7 +130,7 @@ Stress also works without valgrind. A bug then shows as a crash instead of a rep
 
 ## Compaction stress
 
-The CLR never compacts inside an allocation, only at a safe point of the scheduler loop, and on its own it rarely compacts at all. `NANOCLR_COMPACT_STRESS=<n>` schedules a compaction after every n-th stress GC (so it needs `NANOCLR_GC_STRESS`); the CLR runs it at the next safe point, exactly like a compaction it schedules itself. Live objects then move often, and native code that keeps a raw pointer to one across calls, where `Relocate` does not update it, is left holding the old address. That address is a free block after the move, so memcheck reports the next access.
+The CLR never compacts inside an allocation, only at a safe point of the scheduler loop, and on its own it rarely compacts at all. `NANOCLR_COMPACT_STRESS=<n>` schedules a compaction after every n-th stress GC (so it needs `NANOCLR_GC_STRESS`); the CLR runs it at the next safe point, exactly like a compaction it schedules itself. Live objects then move often, and native code that keeps a raw pointer to one across calls, where `Relocate` does not update it, is left holding the old address. Memcheck reports an access through it only if that address is free at the time, and after a compaction it usually is not. Compaction slides each run of movable objects down by the size of the free block in front of it, so most old addresses of a run now hold other objects of the same run, and the space the run leaves free at its end is where the next run slides to. Only old addresses that end up in the free space left when the compaction finishes are reported. In a HeapStress run every move was such a slide, and right after a move only about 38% of the moved heap blocks had a free old address. Compaction stress therefore finds such a pointer some of the time, not every time.
 
 Several collections between two safe points still make one compaction, so `1` means "as often as the CLR can", which is about one compaction per scheduler pass. (The harness options `--forcegc` and `--compactionaftergc` are not forwarded to the CLR on this host, so they do not do this.)
 
@@ -221,7 +225,7 @@ Everything found with this tooling so far, with how each was found and a verific
 
 - **Quarantine lasts one collection.** A stale pointer used only after the next GC can land in a new object and go unreported.
 - **Neighbouring objects.** There are no red zones between objects, so a write past the end of an object into a **live** neighbour is not detected; only writes into free, quarantined or cached blocks are.
-- **Relocation.** A pointer the CLR relocates to a wrong but valid address is not detected; only pointers left at the old address are.
+- **Relocation.** A pointer the CLR relocates to a wrong but valid address is not detected. A pointer left at the old address is detected only while that address is free, which after a compaction is the exception (see [Compaction stress](#compaction-stress)).
 - **Inline frame buffers.** `CLR_RT_InlineBuffer` records live in a static array, not in the heap, and are not annotated.
 
 Native memory outside the managed heap needs no annotations: on this host `platform_malloc` is plain `malloc`, so memcheck checks it like any other allocation, leaks included.
@@ -238,14 +242,15 @@ Memcheck keeps two kinds of shadow state for every byte of the process: an A bit
 |---|---|---|
 | `VALGRIND_MAKE_MEM_UNDEFINED` | accessible, value undefined | a new object; the inside of a free or cached block about to be handed out or written into |
 | `VALGRIND_MAKE_MEM_NOACCESS` | not accessible | the inside of a free, cached or quarantined block |
+| `VALGRIND_MAKE_MEM_DEFINED` | accessible, value defined | the whole heap when a soft reboot of the CLR gets it back (see [Block life cycle](#block-life-cycle)) |
 
-A byte becomes defined again only when the CLR writes it, so nothing marks memory defined explicitly.
+Apart from that soft reboot, a byte becomes defined again only when the CLR writes it.
 
 Design choices:
 
-- **Stateless requests.** `MAKE_MEM_*` only changes the shadow bits of a range; memcheck keeps no record of objects. The hooks therefore need no bookkeeping of their own and cannot get out of step with the allocator: each one describes the heap as it is at that point. The price is the address description in reports, which only names the whole heap (see [Reading a report](#reading-a-report)).
+- **Stateless requests.** `MAKE_MEM_*` only changes the shadow bits of a range; memcheck keeps no record of objects. The hooks therefore need no bookkeeping of their own and cannot get out of step with the allocator: each one describes the heap as it is at that point. The price is the address description in reports, which only names the whole heap (see [Reading a report](#reading-a-report)). The shadow bits themselves outlive a CLR session, though: a soft reboot gets the same heap back, so the host marks it defined before the new session reads it.
 - **The heap layout does not change.** Objects keep their size and position, with no red zones and no padding, so the heap is filled and compacted exactly as in a normal build, and the i386 build has the heap blocks of a device. Quarantine is the one exception, and it only delays reuse.
-- **Hooks in shared code, requests in the target.** `src/` only calls macros from `nanoCLR_HeapAnnotations.h`, which are empty unless the target defines `NANOCLR_HEAP_ANNOTATIONS` and supplies `nanoCLR_HeapAnnotations_target.h`. Device builds compile to the same code as before; another checker (ASan, see [References](#references)) only needs another target header.
+- **Hooks in shared code, requests in the target.** `src/` only calls macros from `nanoCLR_HeapAnnotations.h`, which are empty unless the target defines `NANOCLR_HEAP_ANNOTATIONS` and supplies `nanoCLR_HeapAnnotations_target.h`. Device builds compile to the same code as before; another checker (ASan, see [References](#references)) only needs another target header. Such a target has to leave `NANOCLR_FILL_MEMORY_WITH_DIRTY_PATTERN` off, as POSIX does; the Windows virtual device turns it on in Debug. With it, `Debug_ClearBlock` writes a pattern into free blocks the hooks have made inaccessible, and makes every heap block of a new object but the first defined.
 - **Memcheck, not mempools or a new tool.** Memory pools (`VALGRIND_MEMPOOL_*`) would give every report the allocation and free stack of the object, but they need a request per object, also when compaction moves it, and compaction moves whole runs of objects with one `memmove` without visiting each one. A separate valgrind tool would have to reimplement the shadow memory memcheck already has.
 
 ### Heap block layout
@@ -257,7 +262,7 @@ The heap is an array of `CLR_RT_HeapBlock`. An object is a run of them; the firs
 | i386 (`posix-x86-*`), like the embedded targets | 12 bytes | id at 0, data at 4..11 |
 | x86-64 (`posix-x64-*`) | 24 bytes | id at 0, 4 bytes of padding, data at 8..23 |
 
-A free block (`DATATYPE_FREEBLOCK`) and a block parked in the event cache (`DATATYPE_CACHEDBLOCK`) are a `CLR_RT_HeapBlock_Node`: the same first heap block, whose data holds the `next` and `prev` links of a doubly linked list. The rest of the run is unused. That is why `FREE` keeps the first heap block accessible and makes only the rest inaccessible: the free-list walk in `ExtractBlocks`, `InsertInOrder` and compaction read the links, and every heap walk (sweep, compaction, heap validation) reads the id to step to the next block. A quarantined block is on no list, so only its id stays accessible.
+A free block (`DATATYPE_FREEBLOCK`) and a block parked in the event cache (`DATATYPE_CACHEDBLOCK`) are a `CLR_RT_HeapBlock_Node`: the same first heap block, whose data holds the `next` and `prev` links of a doubly linked list. The rest of the run is unused. That is why `FREE` keeps the first heap block accessible and makes only the rest inaccessible: the free-list walk in `ExtractBlocks`, `InsertInOrder` and compaction read the links, and every heap walk (sweep, compaction, heap validation up to level 2) reads the id to step to the next block. A quarantined block is on no list, so only its id stays accessible.
 
 The annotations work in whole heap blocks, except for the quarantine's 4-byte id. On x86-64 the padding after the id is never written, so it stays undefined in every object; that causes no reports, because memcheck only reports undefined bytes when a decision depends on them, not when they are copied.
 
@@ -265,6 +270,7 @@ The annotations work in whole heap blocks, except for the quarantine's 4-byte id
 
 | Transition | Where | Annotation |
 |---|---|---|
+| heap handed out at a CLR start | `HeapLocation` (`Memory.cpp`), `CLR_RT_HeapCluster::HeapCluster_Initialize` | at the first start the heap is fresh from `malloc` and filled with a pattern, so it is defined. At a soft reboot the same memory comes back with the annotations of the previous session, and `HeapLocation` marks all of it defined again (`MAKE_MEM_DEFINED`). `HeapCluster_Initialize` then reads it to salvage objects that survive a reboot, and its `RecoverFromGC` annotates the free space as below |
 | free block found for an allocation | `CLR_RT_HeapCluster::ExtractBlocks` | `UNFREE` on the whole free block, so the remainder can get a new node header in the middle of it |
 | remainder of the split | `ExtractBlocks` | `FREE` on the remainder, now its own free-list node |
 | the allocated part | `ExtractBlocks`, after unlinking | `ALLOC`: the whole run including the first block becomes undefined; the CLR then writes the id, and zeroes the object when `HB_InitializeToZero` is set. Without that flag, every field the CLR does not write stays undefined, which is what finds unwritten stack-frame slots |
@@ -272,8 +278,8 @@ The annotations work in whole heap blocks, except for the quarantine's 4-byte id
 | object dies, with quarantine | `RecoverFromGC` | the run of objects that died in this collection gets a free-block id and `QUARANTINE`; it is not linked (see [Quarantine](#quarantine)) |
 | free block inserted, with coalescing | `CLR_RT_HeapCluster::InsertInOrder` | `FREE` on the merged block, which also hides the node header of a neighbour absorbed into it |
 | compaction, destination | `CLR_RT_GarbageCollector::Heap_Compact` | `UNFREE` on the free region before `memmove` writes live objects into it |
-| compaction, the move | `memmove` | memcheck replaces `memmove` with its own copy, so the V bits travel with the data: an undefined field is still undefined at the new address |
-| compaction, source | `Heap_Compact` → `InsertInOrder` | the vacated range becomes a free block, `FREE`; a raw pointer still holding the old address is now an `Invalid read` |
+| compaction, the move | `memmove` | memcheck copies the V bits along with every byte the program copies, so an undefined field is still undefined at the new address. The A bits belong to the address and do not move, which is why `UNFREE` opens the destination first |
+| compaction, what the move leaves free | `Heap_Compact` → `InsertInOrder` | `FREE` on the part of the old range that no moved object covers: when a run slides down into the free block right in front of it, only the last blocks of its old range, as many as the free block had (all of them if the run is shorter); when it is copied to a free block elsewhere, the whole old range. A raw pointer still holding an old address is an `Invalid read` only if the address lies in that part and no later move fills it (see [Compaction stress](#compaction-stress)) |
 | compaction, free region not used | `Heap_Compact` | `FREE` again on a region `UNFREE` opened but nothing was moved into |
 | released to the event cache | `CLR_RT_EventCache::Append_Node` | `FREE`, the same shape as a free block; the block stays alive for the GC but is unused |
 | taken from the event cache | `Extract_Node_Fast`, `Extract_Node_Slow` | `UNFREE`: the rest of the node becomes writable and undefined. The first block keeps its links, because the CLR relies on the links of an unlinked node being null. `Extract_Node_Slow` requeues the unused tail of a larger node with `Append_Node` |
@@ -297,7 +303,8 @@ The annotations work in whole heap blocks, except for the quarantine's 4-byte id
 | `src/CLR/Include/nanoCLR_HeapAnnotations.h` | the hooks and their empty defaults |
 | `targets/posix/Include/nanoCLR_HeapAnnotations_target.h` | the hooks as memcheck client requests (`VALGRIND_MAKE_MEM_*`) |
 | `targets/posix/nanoCLR/HeapAnnotations.cpp` | GC and compaction stress, quarantine switch and the self-test |
-| `targets/posix/nanoCLR/CMakeLists.txt` | the `NANO_POSIX_HEAP_MEMCHECK` option |
+| `targets/posix/nanoCLR/Memory.cpp` | the heap memory; marks it defined again at a soft reboot of the CLR |
+| `targets/posix/nanoCLR/CMakeLists.txt` | the `NANO_POSIX_HEAP_MEMCHECK` option, which it refuses together with heap validation 3 or 4 |
 | `targets/posix/CMakePresets.json` | the `posix-x64-memcheck` and `posix-x86-memcheck` presets |
 | `targets/posix/tests/HeapStress/` | the stress application and its build script |
 | `targets/posix/tests/GCCompactionSoak/` | an endless allocator churn with forced compactions, and its build script |

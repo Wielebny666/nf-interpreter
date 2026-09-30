@@ -58,6 +58,9 @@ bo `targets/posix/CMakeLists.txt` nie ustawia domyślnego.
 | `posix-x64-memcheck` | `build/posix64-memcheck` | sterta opisana dla valgrinda, GC stress |
 
 Walidacja sterty: `NANO_POSIX_VALIDATE_HEAP` 0–4, 0 do pomiarów, 3 do soaku.
+Od poziomu 3 kompakcja wykłada CLR albo wypisuje fałszywe komunikaty o nakładaniu
+się bloków, patrz [znany problem 6](#znane-problemy-hosta). CMake nie skonfiguruje jej
+razem z buildem memcheck.
 
 Profilowanie: callgrind działa bez uprawnień. `perf` nie ma w obrazie (pakiet jest
 związany z jądrem kontenera, nie hosta) — uruchamiaj go z hosta przeciwko
@@ -206,7 +209,7 @@ więc układ sterty i zachowanie GC odpowiadają urządzeniu.
 | --forcegc --compactionaftergc | `posix-x86-debug` | jak wyżej; flagi nie działają (patrz tryb 1) |
 | break on Heap_Compact | `posix-x86-debug` | staje w `Heap_Compact`, gdy CLR sam zaplanuje kompakcję |
 | measure, pick heap size | `posix-x86` | przebiegi na buildzie zoptymalizowanym, rozmiar sterty wybierany przy starcie |
-| soak, heap validation 3 | `posix-x86-soak` | długie przebiegi z walidacją sterty; wolne |
+| soak, heap validation 3 | `posix-x86-soak` | długie przebiegi z walidacją sterty; wolne; pada przy pierwszej kompakcji (znany problem 6) |
 | smoke, no assemblies | `posix-x86-debug` | sam start CLR: baner i wyjście `a2000000` |
 
 ### 6 GC bench x64 — `posix-x64*`
@@ -473,7 +476,7 @@ Wszystko, czym da się skonfigurować host, w jednym miejscu.
 | `NANO_POSIX_ENABLE_NETWORK` | `ON` | `System.Net` na gniazdach BSD hosta |
 | `NANO_POSIX_ENABLE_DEBUGGER` | `OFF` (`ON` w presetach `-debugger` i `-memcheck`) | stos debuggera Wire Protocol, transport TCP, symulowany flash, `HostLock` |
 | `NANO_POSIX_VALIDATE_HEAP` | `0` (`3` w presetach `-soak`) | poziom walidacji sterty 0–4 |
-| `NANO_POSIX_HEAP_MEMCHECK` | `OFF` (`ON` w presetach `-memcheck`) | adnotacje sterty dla valgrinda, stres GC i kompakcji, kwarantanna, self-test; wymaga `valgrind/memcheck.h` |
+| `NANO_POSIX_HEAP_MEMCHECK` | `OFF` (`ON` w presetach `-memcheck`) | adnotacje sterty dla valgrinda, stres GC i kompakcji, kwarantanna, self-test; wymaga `valgrind/memcheck.h`; odrzucana z `NANO_POSIX_VALIDATE_HEAP` 3 albo 4 |
 | `NANO_POSIX_ARCH` | `arm64` | tylko macOS: `arm64` albo `x86_64` |
 
 ### Zmienne środowiskowe
@@ -529,3 +532,8 @@ Ostatnie cztery są w `nanoCLR/HeapAnnotations.cpp` i opisuje je [HEAP-MEMCHECK.
    wtedy testów i wypisuje tylko `Done.`. Z `/langversion:10` ten sam kod działa.
    Zaobserwowane z MetadataProcessorem 3.0.104; czy winny jest procesor, czy
    CLR, jeszcze nie wiadomo.
+6. **Walidacja sterty od poziomu 3 czyta dane obiektów jako dowiązania list**:
+   znalezisko [8](heap-memcheck-findings/08-validatecluster-reads-object-data.md).
+   Presety `-soak` padają przy pierwszej kompakcji HeapStress, a `posix-x86-soak`
+   także z GCCompactionSoak; `posix-x64-soak` wypisuje zamiast tego fałszywe
+   komunikaty `Overlapping blocks detected`.

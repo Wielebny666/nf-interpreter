@@ -59,6 +59,9 @@ because `targets/posix/CMakeLists.txt` sets no default.
 | `posix-x64-memcheck` | `build/posix64-memcheck` | heap described to valgrind, GC stress |
 
 Heap validation: `NANO_POSIX_VALIDATE_HEAP` 0-4, 0 for measurements, 3 for a soak.
+From level 3 on, a compaction crashes the CLR or prints false overlap messages,
+see [known issue 6](#known-issues-of-the-host). CMake refuses to configure it
+together with the memcheck build.
 
 Profiling: callgrind works unprivileged. `perf` is not in the image (the package is
 tied to the container's kernel, not the host's); run it from the host against the
@@ -208,7 +211,7 @@ so heap layout and GC behaviour match a device.
 | --forcegc --compactionaftergc | `posix-x86-debug` | as above; the flags do not work (see mode 1) |
 | break on Heap_Compact | `posix-x86-debug` | stops in `Heap_Compact` when the CLR schedules a compaction itself |
 | measure, pick heap size | `posix-x86` | runs on the optimised build, heap size chosen at launch |
-| soak, heap validation 3 | `posix-x86-soak` | long runs with heap validation; slow |
+| soak, heap validation 3 | `posix-x86-soak` | long runs with heap validation; slow; crashes at the first compaction (known issue 6) |
 | smoke, no assemblies | `posix-x86-debug` | CLR start only: banner and exit `a2000000` |
 
 ### 6 GC bench x64 - `posix-x64*`
@@ -477,7 +480,7 @@ Everything the host can be configured with, in one place.
 | `NANO_POSIX_ENABLE_NETWORK` | `ON` | `System.Net` over the host's BSD sockets |
 | `NANO_POSIX_ENABLE_DEBUGGER` | `OFF` (`ON` in the `-debugger` and `-memcheck` presets) | Wire Protocol debugger stack, TCP transport, simulated flash, `HostLock` |
 | `NANO_POSIX_VALIDATE_HEAP` | `0` (`3` in the `-soak` presets) | heap validation level 0-4 |
-| `NANO_POSIX_HEAP_MEMCHECK` | `OFF` (`ON` in the `-memcheck` presets) | heap annotations for valgrind, GC and compaction stress, quarantine, self-test; needs `valgrind/memcheck.h` |
+| `NANO_POSIX_HEAP_MEMCHECK` | `OFF` (`ON` in the `-memcheck` presets) | heap annotations for valgrind, GC and compaction stress, quarantine, self-test; needs `valgrind/memcheck.h`; refused with `NANO_POSIX_VALIDATE_HEAP` 3 or 4 |
 | `NANO_POSIX_ARCH` | `arm64` | macOS only: `arm64` or `x86_64` |
 
 ### Environment variables
@@ -533,3 +536,8 @@ The last four are in `nanoCLR/HeapAnnotations.cpp` and described in [HEAP-MEMCHE
    and prints only `Done.`. With `/langversion:10` the same source works. Seen
    with MetadataProcessor 3.0.104; whether the processor or the CLR is at fault
    is not known yet.
+6. **Heap validation from level 3 on reads object data as list links**:
+   finding [8](heap-memcheck-findings/08-validatecluster-reads-object-data.md).
+   The `-soak` presets crash at the first compaction of HeapStress, and
+   `posix-x86-soak` also with GCCompactionSoak; `posix-x64-soak` prints false
+   `Overlapping blocks detected` messages instead.

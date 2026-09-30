@@ -41,6 +41,8 @@ Preset dziedziczy po `posix-x64-debugger` (Debug z debuggerem Wire Protocol) i b
 
 `posix-x86-memcheck` to samo dla i386 (`build/posix32-memcheck`). Ten build ma 12-bajtowy `CLR_RT_HeapBlock` targetów wbudowanych, więc jest najbliższy urządzeniu. Potrzebuje 32-bitowego toolchainu multilib jak pozostałe presety `posix-x86` oraz `libc6-dbg:i386` dla valgrinda. Wszystko poniżej działa tak samo z oboma buildami.
 
+Walidacja sterty działa z tym buildem do poziomu 2; oba presety zostawiają ją na 0. CMake odmawia konfiguracji `NANO_POSIX_HEAP_MEMCHECK` razem z `NANO_POSIX_VALIDATE_HEAP` 3 albo 4, bo od poziomu 3 `ValidateCluster` czyta pierwsze słowo danych każdego heap blocka jako dowiązanie free listy, choć większość bloków to obiekty. Pod valgrindem daje to miliony raportów na pamięci obiektów, a z [kwarantanną](#kwarantanna) CLR pada nawet bez valgrinda, bo blok w kwarantannie trzyma w tym miejscu dane martwego obiektu zamiast dowiązań. Patrz [znalezisko 8](heap-memcheck-findings/08-validatecluster-reads-object-data.md).
+
 Binarka działa też bez valgrinda. Adnotacje są wtedy kilkoma instrukcjami, które nic nie robią.
 
 ## Zmienne środowiskowe
@@ -101,6 +103,8 @@ Invalid read of size 1
 | dodatkowe błędy między znacznikami | fałszywe alarmy z samego alokatora albo GC, czyli błąd w hookach |
 | błędy po `self-test: done` | niezwiązane z self-testem: znaleziska w aplikacji albo w CLR |
 
+Self-test nie podkłada błędów w kompaktowaniu ani w scalaniu w `InsertInOrder`. Te hooki są sprawdzane tylko pośrednio: HeapStress pod [compaction stress](#compaction-stress) musi przejść bez raportów z `Heap_Compact` i `InsertInOrder`.
+
 Sprawdzenie skryptem, dla CI:
 
 ```bash
@@ -128,7 +132,7 @@ Stres działa też bez valgrinda. Błąd pokazuje się wtedy jako crash zamiast 
 
 ## Compaction stress
 
-CLR nigdy nie kompaktuje w trakcie alokacji, tylko w bezpiecznym punkcie pętli schedulera, a sam z siebie kompaktuje rzadko. `NANOCLR_COMPACT_STRESS=<n>` planuje kompaktowanie po co n-tym GC ze stresu (więc wymaga `NANOCLR_GC_STRESS`); CLR wykonuje je w najbliższym bezpiecznym punkcie, dokładnie jak kompaktowanie, które zaplanuje sam. Żywe obiekty często się wtedy przesuwają, a kod natywny, który trzyma do jednego z nich surowy wskaźnik przez wywołania, których `Relocate` nie aktualizuje, zostaje ze starym adresem. Po przesunięciu pod tym adresem jest wolny blok, więc memcheck zgłasza następny dostęp.
+CLR nigdy nie kompaktuje w trakcie alokacji, tylko w bezpiecznym punkcie pętli schedulera, a sam z siebie kompaktuje rzadko. `NANOCLR_COMPACT_STRESS=<n>` planuje kompaktowanie po co n-tym GC ze stresu (więc wymaga `NANOCLR_GC_STRESS`); CLR wykonuje je w najbliższym bezpiecznym punkcie, dokładnie jak kompaktowanie, które zaplanuje sam. Żywe obiekty często się wtedy przesuwają, a kod natywny, który trzyma do jednego z nich surowy wskaźnik przez wywołania, których `Relocate` nie aktualizuje, zostaje ze starym adresem. Memcheck zgłasza dostęp przez taki wskaźnik tylko wtedy, gdy ten adres jest akurat wolny, a po kompaktowaniu zwykle nie jest. Kompaktowanie przesuwa każdy ciąg ruchomych obiektów w dół o rozmiar wolnego bloku przed nim, więc pod większością starych adresów ciągu leżą teraz inne obiekty tego samego ciągu, a miejsce, które ciąg zwalnia na swoim końcu, zajmuje następny przesuwany ciąg. Zgłaszane są tylko stare adresy, które wypadną w wolnym miejscu pozostałym po zakończeniu kompaktowania. W przebiegu HeapStress każde przeniesienie było takim przesunięciem, a zaraz po przeniesieniu wolny stary adres miało tylko około 38% przeniesionych heap blocków. Compaction stress znajduje więc taki wskaźnik tylko czasem, nie za każdym razem.
 
 Kilka kolekcji między dwoma bezpiecznymi punktami daje jedno kompaktowanie, więc `1` znaczy „tak często, jak CLR potrafi”, czyli mniej więcej raz na przebieg schedulera. (Opcje harnessu `--forcegc` i `--compactionaftergc` nie są na tym hoście przekazywane do CLR, więc tego nie robią.)
 
@@ -223,7 +227,7 @@ Wszystko, co do tej pory znalazły te narzędzia, z opisem, jak zostało znalezi
 
 - **Kwarantanna trwa jedną kolekcję.** Nieaktualny wskaźnik użyty dopiero po następnym GC może trafić w nowy obiekt i przejść niezgłoszony.
 - **Sąsiednie obiekty.** Między obiektami nie ma red zones, więc zapis za końcem obiektu do **żywego** sąsiada nie jest wykrywany; wykrywane są tylko zapisy do bloków wolnych, w kwarantannie albo w cache.
-- **Relokacja.** Wskaźnik, który CLR przesunie na zły, ale poprawny adres, nie jest wykrywany; tylko wskaźniki pozostawione pod starym adresem.
+- **Relokacja.** Wskaźnik, który CLR przesunie na zły, ale poprawny adres, nie jest wykrywany. Wskaźnik pozostawiony pod starym adresem jest wykrywany tylko, dopóki ten adres jest wolny, a po kompaktowaniu to wyjątek (patrz [Compaction stress](#compaction-stress)).
 - **Bufory ramek inline.** Rekordy `CLR_RT_InlineBuffer` leżą w statycznej tablicy, nie na stercie, i nie mają adnotacji.
 
 Pamięć natywna poza stertą zarządzaną nie potrzebuje adnotacji: na tym hoście `platform_malloc` to zwykły `malloc`, więc memcheck sprawdza ją jak każdą inną alokację, łącznie z wyciekami.
@@ -240,14 +244,15 @@ Memcheck trzyma dla każdego bajtu procesu dwa rodzaje stanu cienia: bit A (czy 
 |---|---|---|
 | `VALGRIND_MAKE_MEM_UNDEFINED` | dostępne, wartość niezdefiniowana | nowy obiekt; wnętrze bloku wolnego albo z cache, który zaraz zostanie wydany albo zapisany |
 | `VALGRIND_MAKE_MEM_NOACCESS` | niedostępne | wnętrze bloku wolnego, z cache albo w kwarantannie |
+| `VALGRIND_MAKE_MEM_DEFINED` | dostępne, wartość zdefiniowana | cała sterta, gdy miękki restart CLR dostaje ją z powrotem (patrz [Cykl życia bloku](#cykl-życia-bloku)) |
 
-Bajt staje się znów zdefiniowany dopiero, gdy CLR go zapisze, więc nic nie oznacza pamięci jako zdefiniowanej jawnie.
+Poza tym miękkim restartem bajt staje się znów zdefiniowany dopiero, gdy CLR go zapisze.
 
 Decyzje projektowe:
 
-- **Bezstanowe requesty.** `MAKE_MEM_*` zmienia tylko bity cienia zakresu; memcheck nie prowadzi rejestru obiektów. Hooki nie potrzebują więc własnej ewidencji i nie mogą się rozjechać z alokatorem: każdy opisuje stertę taką, jaka jest w tym miejscu. Ceną jest opis adresu w raportach, który wskazuje tylko całą stertę (patrz [Czytanie raportu](#czytanie-raportu)).
+- **Bezstanowe requesty.** `MAKE_MEM_*` zmienia tylko bity cienia zakresu; memcheck nie prowadzi rejestru obiektów. Hooki nie potrzebują więc własnej ewidencji i nie mogą się rozjechać z alokatorem: każdy opisuje stertę taką, jaka jest w tym miejscu. Ceną jest opis adresu w raportach, który wskazuje tylko całą stertę (patrz [Czytanie raportu](#czytanie-raportu)). Same bity cienia przeżywają jednak sesję CLR: miękki restart dostaje z powrotem tę samą stertę, więc host oznacza ją jako zdefiniowaną, zanim nowa sesja ją przeczyta.
 - **Układ sterty się nie zmienia.** Obiekty zachowują rozmiar i położenie, bez red zones i bez dopełnienia, więc sterta zapełnia się i kompaktuje dokładnie jak w zwykłym buildzie, a build i386 ma heap blocki urządzenia. Jedynym wyjątkiem jest kwarantanna, i ona tylko opóźnia ponowne użycie.
-- **Hooki we wspólnym kodzie, requesty w targecie.** `src/` wywołuje tylko makra z `nanoCLR_HeapAnnotations.h`, które są puste, dopóki target nie zdefiniuje `NANOCLR_HEAP_ANNOTATIONS` i nie dostarczy `nanoCLR_HeapAnnotations_target.h`. Buildy na urządzenia kompilują się do tego samego kodu co wcześniej; inny checker (ASan, patrz [Odnośniki](#odnośniki)) potrzebuje tylko innego nagłówka targetu.
+- **Hooki we wspólnym kodzie, requesty w targecie.** `src/` wywołuje tylko makra z `nanoCLR_HeapAnnotations.h`, które są puste, dopóki target nie zdefiniuje `NANOCLR_HEAP_ANNOTATIONS` i nie dostarczy `nanoCLR_HeapAnnotations_target.h`. Buildy na urządzenia kompilują się do tego samego kodu co wcześniej; inny checker (ASan, patrz [Odnośniki](#odnośniki)) potrzebuje tylko innego nagłówka targetu. Taki target musi mieć wyłączone `NANOCLR_FILL_MEMORY_WITH_DIRTY_PATTERN`, jak POSIX; urządzenie wirtualne Windows włącza je w Debug. Z nim `Debug_ClearBlock` zapisuje wzorzec do wolnych bloków, które hooki uczyniły niedostępnymi, i oznacza jako zdefiniowane wszystkie heap blocki nowego obiektu poza pierwszym.
 - **Memcheck, nie mempools ani nowe narzędzie.** Memory pools (`VALGRIND_MEMPOOL_*`) dałyby w każdym raporcie stos alokacji i zwolnienia obiektu, ale wymagają requestu na każdy obiekt, także gdy kompaktowanie go przesuwa, a kompaktowanie przesuwa całe ciągi obiektów jednym `memmove`, bez odwiedzania każdego z nich. Osobne narzędzie valgrinda musiałoby od nowa zaimplementować pamięć cienia, którą memcheck już ma.
 
 ### Układ heap blocka
@@ -259,7 +264,7 @@ Sterta to tablica `CLR_RT_HeapBlock`. Obiekt to ich ciąg; pierwszy zawiera nag�
 | i386 (`posix-x86-*`), jak targety wbudowane | 12 bajtów | id na 0, dane na 4..11 |
 | x86-64 (`posix-x64-*`) | 24 bajty | id na 0, 4 bajty wyrównania, dane na 8..23 |
 
-Wolny blok (`DATATYPE_FREEBLOCK`) i blok odłożony do event cache (`DATATYPE_CACHEDBLOCK`) to `CLR_RT_HeapBlock_Node`: ten sam pierwszy heap block, w którego danych są dowiązania `next` i `prev` listy dwukierunkowej. Reszta ciągu jest nieużywana. Dlatego `FREE` zostawia pierwszy heap block dostępny, a niedostępną robi tylko resztę: przejście po free liście w `ExtractBlocks`, `InsertInOrder` i kompaktowanie czytają dowiązania, a każde przejście po stercie (sweep, kompaktowanie, walidacja sterty) czyta id, żeby przejść do następnego bloku. Blok w kwarantannie nie jest na żadnej liście, więc dostępne zostaje tylko jego id.
+Wolny blok (`DATATYPE_FREEBLOCK`) i blok odłożony do event cache (`DATATYPE_CACHEDBLOCK`) to `CLR_RT_HeapBlock_Node`: ten sam pierwszy heap block, w którego danych są dowiązania `next` i `prev` listy dwukierunkowej. Reszta ciągu jest nieużywana. Dlatego `FREE` zostawia pierwszy heap block dostępny, a niedostępną robi tylko resztę: przejście po free liście w `ExtractBlocks`, `InsertInOrder` i kompaktowanie czytają dowiązania, a każde przejście po stercie (sweep, kompaktowanie, walidacja sterty do poziomu 2) czyta id, żeby przejść do następnego bloku. Blok w kwarantannie nie jest na żadnej liście, więc dostępne zostaje tylko jego id.
 
 Adnotacje działają na całych heap blockach, poza 4-bajtowym id w kwarantannie. Na x86-64 wyrównanie za id nigdy nie jest zapisywane, więc w każdym obiekcie pozostaje niezdefiniowane; nie powoduje to raportów, bo memcheck zgłasza niezdefiniowane bajty tylko wtedy, gdy od nich zależy decyzja, a nie przy kopiowaniu.
 
@@ -267,6 +272,7 @@ Adnotacje działają na całych heap blockach, poza 4-bajtowym id w kwarantannie
 
 | Przejście | Gdzie | Adnotacja |
 |---|---|---|
+| sterta wydana przy starcie CLR | `HeapLocation` (`Memory.cpp`), `CLR_RT_HeapCluster::HeapCluster_Initialize` | przy pierwszym starcie sterta jest świeża z `malloc` i wypełniona wzorcem, więc zdefiniowana. Przy miękkim restarcie ta sama pamięć wraca z adnotacjami poprzedniej sesji, a `HeapLocation` znów oznacza ją całą jako zdefiniowaną (`MAKE_MEM_DEFINED`). `HeapCluster_Initialize` czyta ją potem, żeby odzyskać obiekty, które przeżywają restart, a jego `RecoverFromGC` opisuje wolne miejsce jak poniżej |
 | znaleziony wolny blok dla alokacji | `CLR_RT_HeapCluster::ExtractBlocks` | `UNFREE` na całym wolnym bloku, żeby reszta mogła dostać nowy nagłówek węzła w jego środku |
 | reszta po podziale | `ExtractBlocks` | `FREE` na reszcie, teraz osobnym węźle free listy |
 | zaalokowana część | `ExtractBlocks`, po odpięciu | `ALLOC`: cały ciąg razem z pierwszym blokiem staje się niezdefiniowany; CLR zapisuje potem id i zeruje obiekt, gdy ustawione jest `HB_InitializeToZero`. Bez tej flagi każde pole, którego CLR nie zapisze, pozostaje niezdefiniowane, i to właśnie znajduje niezapisane sloty ramek stosu |
@@ -274,8 +280,8 @@ Adnotacje działają na całych heap blockach, poza 4-bajtowym id w kwarantannie
 | obiekt umiera, z kwarantanną | `RecoverFromGC` | ciąg obiektów zmarłych w tej kolekcji dostaje id wolnego bloku i `QUARANTINE`; nie jest dopinany (patrz [Kwarantanna](#kwarantanna)) |
 | wstawienie wolnego bloku ze scalaniem | `CLR_RT_HeapCluster::InsertInOrder` | `FREE` na scalonym bloku, co ukrywa też nagłówek węzła wchłoniętego sąsiada |
 | kompaktowanie, cel | `CLR_RT_GarbageCollector::Heap_Compact` | `UNFREE` na wolnym obszarze, zanim `memmove` zapisze do niego żywe obiekty |
-| kompaktowanie, przesunięcie | `memmove` | memcheck podmienia `memmove` na własną kopię, więc bity V wędrują z danymi: niezdefiniowane pole jest niezdefiniowane także pod nowym adresem |
-| kompaktowanie, źródło | `Heap_Compact` → `InsertInOrder` | zwolniony zakres staje się wolnym blokiem, `FREE`; surowy wskaźnik ze starym adresem daje teraz `Invalid read` |
+| kompaktowanie, przesunięcie | `memmove` | memcheck kopiuje bity V razem z każdym bajtem, który kopiuje program, więc niezdefiniowane pole jest niezdefiniowane także pod nowym adresem. Bity A należą do adresu i się nie przesuwają, dlatego `UNFREE` najpierw otwiera cel |
+| kompaktowanie, co przesunięcie zostawia wolne | `Heap_Compact` → `InsertInOrder` | `FREE` na tej części starego zakresu, której nie pokrywa żaden przesunięty obiekt: gdy ciąg zsuwa się do wolnego bloku tuż przed nim, tylko ostatnie bloki starego zakresu, tyle, ile miał wolny blok (wszystkie, jeśli ciąg jest krótszy); gdy jest kopiowany do wolnego bloku gdzie indziej, cały stary zakres. Surowy wskaźnik ze starym adresem daje `Invalid read` tylko wtedy, gdy adres leży w tej części i żadne późniejsze przesunięcie jej nie zapełni (patrz [Compaction stress](#compaction-stress)) |
 | kompaktowanie, niewykorzystany wolny obszar | `Heap_Compact` | znów `FREE` na obszarze, który `UNFREE` otworzył, ale nic do niego nie przesunięto |
 | zwolnienie do event cache | `CLR_RT_EventCache::Append_Node` | `FREE`, ten sam kształt co wolny blok; dla GC blok pozostaje żywy, ale jest nieużywany |
 | pobranie z event cache | `Extract_Node_Fast`, `Extract_Node_Slow` | `UNFREE`: reszta węzła staje się zapisywalna i niezdefiniowana. Pierwszy blok zachowuje dowiązania, bo CLR polega na tym, że dowiązania odpiętego węzła są zerowe. `Extract_Node_Slow` odkłada nieużyty ogon większego węzła z powrotem przez `Append_Node` |
@@ -299,7 +305,8 @@ Adnotacje działają na całych heap blockach, poza 4-bajtowym id w kwarantannie
 | `src/CLR/Include/nanoCLR_HeapAnnotations.h` | hooki i ich puste domyślne definicje |
 | `targets/posix/Include/nanoCLR_HeapAnnotations_target.h` | hooki jako client requesty memchecka (`VALGRIND_MAKE_MEM_*`) |
 | `targets/posix/nanoCLR/HeapAnnotations.cpp` | GC i compaction stress, przełącznik kwarantanny i self-test |
-| `targets/posix/nanoCLR/CMakeLists.txt` | opcja `NANO_POSIX_HEAP_MEMCHECK` |
+| `targets/posix/nanoCLR/Memory.cpp` | pamięć sterty; przy miękkim restarcie CLR znów oznacza ją jako zdefiniowaną |
+| `targets/posix/nanoCLR/CMakeLists.txt` | opcja `NANO_POSIX_HEAP_MEMCHECK`, której nie przyjmuje razem z walidacją sterty 3 albo 4 |
 | `targets/posix/CMakePresets.json` | presety `posix-x64-memcheck` i `posix-x86-memcheck` |
 | `targets/posix/tests/HeapStress/` | aplikacja stresowa i jej skrypt budujący |
 | `targets/posix/tests/GCCompactionSoak/` | niekończące się mielenie alokatorem z wymuszonymi kompakcjami i jego skrypt budujący |

@@ -8,6 +8,10 @@
 #include <mutex>
 #include <string>
 
+#if defined(NANOCLR_HEAP_ANNOTATIONS)
+#include <valgrind/memcheck.h>
+#endif
+
 namespace
 {
     constexpr size_t c_DefaultHeapSizeBytes = 10 * 1024 * 1024;
@@ -57,6 +61,14 @@ void HeapLocation(unsigned char *&BaseAddress, unsigned int &SizeInBytes)
             std::memset(g_MemoryStart, 0xEA, HeapSizeBytes());
         }
     }
+#if defined(NANOCLR_HEAP_ANNOTATIONS)
+    else
+    {
+        // A soft reboot of the CLR gets the same memory back, and HeapCluster_Initialize reads all of it to salvage
+        // the objects that survive a reboot. The annotations of the previous session no longer describe it.
+        (void)VALGRIND_MAKE_MEM_DEFINED(g_MemoryStart, HeapSizeBytes());
+    }
+#endif
 
     BaseAddress = g_MemoryStart;
     SizeInBytes = (g_MemoryStart != nullptr) ? static_cast<unsigned int>(HeapSizeBytes()) : 0;

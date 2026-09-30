@@ -85,6 +85,14 @@ endif()
 option(NANO_POSIX_HEAP_MEMCHECK "Annotate the managed heap for valgrind memcheck." OFF)
 
 if(NANO_POSIX_HEAP_MEMCHECK)
+    if(NANO_POSIX_VALIDATE_HEAP GREATER_EQUAL 3)
+        message(FATAL_ERROR
+            "NANO_POSIX_HEAP_MEMCHECK cannot be combined with NANO_POSIX_VALIDATE_HEAP ${NANO_POSIX_VALIDATE_HEAP}. "
+            "From level 3 on, heap validation reads object data as free-list links, which floods valgrind with "
+            "reports and crashes the CLR with NANOCLR_HEAP_QUARANTINE. Use level 0, 1 or 2; see "
+            "targets/posix/doc/heap-memcheck-findings/08-validatecluster-reads-object-data.md.")
+    endif()
+
     find_path(NANO_POSIX_VALGRIND_INCLUDE_DIR valgrind/memcheck.h)
 
     if(NOT NANO_POSIX_VALGRIND_INCLUDE_DIR)

@@ -15,8 +15,9 @@ What has not been analysed yet is listed in [TODO.md](TODO.md).
 | 5 | [Static-constructor thread used after release](05-cctor-thread-used-after-release.md) | shared CLR, threads | use after release, harmless today | none |
 | 6 | [`SpawnFinalizer` re-entered through a GC](06-spawnfinalizer-reentry.md) | shared CLR, finalizers | use after release | none |
 | 7 | [Unwritten result slot of a failing native method](07-pushvalue-unwritten-result-slot.md) | shared CLR natives (pattern), serialization stub | GC scans garbage | none |
+| 8 | [Heap validation reads object data as list links](08-validatecluster-reads-object-data.md) | shared CLR, heap validation level 3 and 4 | crash at compaction, false messages | none |
 
-Findings 1 and 2 reproduce identically on the x86-64 build and on the i386 build, which has the 12-byte `CLR_RT_HeapBlock` of the embedded targets, so they are not artefacts of a 64-bit host. Findings 5 to 7 were seen on both as well.
+Findings 1 and 2 reproduce identically on the x86-64 build and on the i386 build, which has the 12-byte `CLR_RT_HeapBlock` of the embedded targets, so they are not artefacts of a 64-bit host. Findings 5 to 8 were seen on both as well.
 
 ## Method
 
