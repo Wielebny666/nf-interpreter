@@ -1,0 +1,201 @@
+#
+# Copyright (c) .NET Foundation and Contributors
+# See LICENSE file in the project root for full license information.
+#
+# Everything this repository builds, in one image: the union of the other two
+# images of this folder.
+#   - Dockerfile.POSIX: the native CLR for the POSIX host, x86-64 and i386
+#     (-m32), with gdb and valgrind for the heap memcheck tooling
+#     (targets/posix/doc/HEAP-MEMCHECK.md);
+#   - Dockerfile.NFBUILD: nanoFramework managed projects (.nfproj, v1 and v2),
+#     the test applications in targets/posix/tests, and the VS Code extension
+#     with its debug bridge (targets/posix/doc/VSCODE-EXTENSION.md).
+# The two are kept separate for a smaller image when only one side is needed;
+# a change to either recipe belongs here as well.
+#
+# docker-compose.yml builds it as the 'full' service:
+#   docker compose -f .devcontainer/POSIX/docker-compose.yml build full
+#
+# Or directly:
+#   docker build -f .devcontainer/POSIX/Dockerfile.FULL -t nanoclr-full .devcontainer/POSIX
+#
+# GCC 13 is the Ubuntu 24.04 default; --build-arg GCC_VERSION=15 adds the
+# toolchain PPA, as in Dockerfile.POSIX.
+#
+FROM ubuntu:24.04
+
+ARG GCC_VERSION=13
+ARG USER_NAME=nano
+ARG USER_UID=1000
+ARG USER_GID=1000
+ARG VCS_REF=unknown
+ARG IMAGE_VERSION=dev
+
+LABEL org.opencontainers.image.title="nanoclr-full" \
+      org.opencontainers.image.description="POSIX host CLR and nanoFramework managed projects" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.version="${IMAGE_VERSION}"
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
+ENV DOTNET_NOLOGO=1
+
+# Build system, debugger and profiler.
+# perf is deliberately absent: the packaged build is tied to the container's
+# kernel headers and will not match the host kernel. Use callgrind inside the
+# container, or run perf from the host against the container process.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        binutils \
+        ca-certificates \
+        cmake \
+        curl \
+        file \
+        gdb \
+        git \
+        less \
+        ninja-build \
+        python3 \
+        sudo \
+        unzip \
+        valgrind \
+        clang-format-19 \
+    && update-alternatives --install /usr/bin/clang-format clang-format /usr/bin/clang-format-19 100 \
+    && rm -rf /var/lib/apt/lists/*
+
+# GCC plus the 32-bit multilib runtime, and make it the default toolchain.
+#
+# linux-libc-dev:i386 is required and is NOT pulled in by gcc-multilib: the
+# multilib packages ship 32-bit libc and libstdc++, but the kernel UAPI headers
+# are per-architecture. Without it any -m32 compile that reaches <errno.h> dies
+# on "asm/errno.h: No such file or directory", which is most of the CLR.
+#
+# libc6-dbg:i386 is what valgrind needs for -m32 binaries: without the 32-bit
+# ld.so symbols it aborts at startup on a mandatory strlen redirection. The
+# valgrind package only depends on the amd64 libc6-dbg.
+RUN set -eux; \
+    dpkg --add-architecture i386; \
+    apt-get update; \
+    if [ "${GCC_VERSION}" != "13" ]; then \
+        apt-get install -y --no-install-recommends software-properties-common; \
+        add-apt-repository -y ppa:ubuntu-toolchain-r/test; \
+        apt-get update; \
+    fi; \
+    apt-get install -y --no-install-recommends \
+        "gcc-${GCC_VERSION}" \
+        "g++-${GCC_VERSION}" \
+        "gcc-${GCC_VERSION}-multilib" \
+        "g++-${GCC_VERSION}-multilib" \
+        linux-libc-dev:i386 \
+        libc6-dbg:i386; \
+    update-alternatives --install /usr/bin/gcc gcc "/usr/bin/gcc-${GCC_VERSION}" 100 \
+        --slave /usr/bin/g++ g++ "/usr/bin/g++-${GCC_VERSION}"; \
+    rm -rf /var/lib/apt/lists/*
+
+# i386 is enabled above for the -m32 build, so the Mono repository is limited
+# to amd64 (it ships no i386 packages).
+# dotnet-sdk-8.0/10.0 come from the Ubuntu 24.04 archive. mono-complete does NOT:
+# the archive build only ships the deprecated 'xbuild', not 'msbuild', which
+# breaks the nanoFramework VS Code extension's own build command (it shells
+# out to 'msbuild' directly - see src/prerequisites.ts in the extension). The
+# official Mono Project repo ships a real 'msbuild', so mono-complete is
+# installed from there instead.
+# --no-install-recommends matters for mono: the recommends pull in monodoc
+# and a text browser.
+# powershell is not in the Ubuntu archive at all: it comes from the Microsoft
+# package repo, which is added (via packages-microsoft-prod.deb) only after
+# mono, so it cannot interfere with the Mono install. That repo ships no
+# dotnet packages for noble, so it does not clash with the archive SDKs.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        dotnet-sdk-8.0 \
+        dotnet-sdk-10.0 \
+        gnupg \
+    && gpg --homedir /tmp --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/mono-official-archive-keyring.gpg \
+        --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys 3FA7E0328081BFF6A14DA29AA6A19B38D3D831EF \
+    && chmod +r /usr/share/keyrings/mono-official-archive-keyring.gpg \
+    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/mono-official-archive-keyring.gpg] https://download.mono-project.com/repo/ubuntu stable-focal main" \
+        > /etc/apt/sources.list.d/mono-official-stable.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends mono-complete \
+    && curl -fsSL -o /tmp/packages-microsoft-prod.deb https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb \
+    && dpkg -i /tmp/packages-microsoft-prod.deb \
+    && rm /tmp/packages-microsoft-prod.deb \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends powershell \
+    && rm -rf /var/lib/apt/lists/*
+
+# Node 24 comes from NodeSource: the Ubuntu 24.04 archive only ships Node 18.
+# The NodeSource nodejs package bundles npm, so the separate 'npm' apt package
+# (which would drag in the distro node-* libraries) is deliberately not installed.
+RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/* \
+    && node --version
+
+# The 'nuget' apt package no longer exists in Ubuntu 24.04 (noble) - it was
+# dropped from the archive. nuget.org still ships the classic nuget.exe,
+# which is a Mono-runnable .NET Framework executable (same story as
+# MetadataProcessor.exe above), so it is fetched directly and wrapped in a
+# shim so 'nuget' on PATH behaves like the old apt package.
+RUN curl -fsSL -o /usr/local/lib/nuget.exe https://dist.nuget.org/win-x86-commandline/latest/nuget.exe \
+    && printf '#!/bin/sh\nexec mono /usr/local/lib/nuget.exe "$@"\n' > /usr/local/bin/nuget \
+    && chmod +x /usr/local/bin/nuget
+
+# Same user model as the other two images: a prebuilt image carries a fixed UID,
+# so the home directory stays world-writable and HOME is set explicitly for
+# containers started with an unmatched 'user:'.
+RUN set -eux; \
+    if getent passwd "${USER_UID}" >/dev/null; then \
+        userdel -r "$(getent passwd "${USER_UID}" | cut -d: -f1)"; \
+    fi; \
+    if ! getent group "${USER_GID}" >/dev/null; then \
+        groupadd -g "${USER_GID}" "${USER_NAME}"; \
+    fi; \
+    useradd -m -u "${USER_UID}" -g "${USER_GID}" -s /bin/bash "${USER_NAME}"; \
+    echo "${USER_NAME} ALL=(root) NOPASSWD:ALL" > "/etc/sudoers.d/${USER_NAME}"; \
+    chmod 0440 "/etc/sudoers.d/${USER_NAME}"; \
+    mkdir -p "/home/${USER_NAME}/commandhistory" "/home/${USER_NAME}/.cache/nfbuild"; \
+    chmod -R 0777 "/home/${USER_NAME}"
+
+ENV HOME=/home/${USER_NAME}
+ENV PATH="${HOME}/.dotnet/tools:${PATH}:/opt/dotnet-tools"
+
+# Global .NET tools live in $HOME/.dotnet/tools, but they must NOT be installed
+# there at build time: directories baked into an image layer cannot be renamed
+# at runtime on overlayfs (redirect_dir off) - rename() fails with EXDEV
+# "Invalid cross-device link", and 'dotnet tool update/uninstall' (which the
+# nanoFramework VS Code extension runs for nanoff on every start) moves the
+# tool directory with Directory.Move, so it dies with that error. So the tools
+# are installed into /opt/dotnet-tools (as root, before USER) and the
+# entrypoint copies them into $HOME/.dotnet/tools on first start; that copy is
+# created in the container's writable layer and can be renamed freely.
+# /opt/dotnet-tools stays on PATH (last) as a fallback if the entrypoint is
+# overridden; the tools are relocatable (shim -> ../.store, relative).
+# nanoff (nanoFramework Flasher) is a .NET global tool required by the
+# nanoFramework VS Code extension; installed as a global tool.
+# Pinned so image builds are reproducible. The pin is a baseline only: the
+# extension runs 'dotnet tool update nanoff' on every start, which moves the
+# per-user copy in $HOME/.dotnet/tools to the latest release (net10.0 builds of
+# nanoff run on the .NET 10 runtime installed above).
+RUN export DOTNET_CLI_HOME=/tmp/dotnet-home \
+    && dotnet tool install --tool-path /opt/dotnet-tools nanoff --version 2.5.162 \
+    && chmod -R a+rX /opt/dotnet-tools \
+    && rm -rf /tmp/dotnet-home \
+    && chown -R "${USER_UID}:${USER_GID}" "${HOME}" \
+    && chmod -R 0777 "${HOME}"
+
+RUN printf '%s\n' \
+        '#!/bin/sh' \
+        'if [ ! -e "$HOME/.dotnet/tools/.store" ]; then' \
+        '    mkdir -p "$HOME/.dotnet" && cp -R --no-preserve=ownership /opt/dotnet-tools "$HOME/.dotnet/tools"' \
+        'fi' \
+        'exec "$@"' \
+        > /usr/local/bin/nf-entrypoint.sh \
+    && chmod 0755 /usr/local/bin/nf-entrypoint.sh
+
+USER ${USER_NAME}
+WORKDIR /workspace
+
+ENTRYPOINT ["/usr/local/bin/nf-entrypoint.sh"]
+CMD ["/bin/bash"]

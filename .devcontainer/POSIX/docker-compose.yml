@@ -27,6 +27,23 @@
 #
 #   docker compose -f .devcontainer/POSIX/docker-compose.yml pull
 #
+# The 'builder' service is a second image, Dockerfile.NFBUILD, for building
+# managed projects and the VS Code extension
+# (targets/posix/doc/VSCODE-EXTENSION.md). It is in the 'builder' profile, so
+# 'up' and the dev container do not start or build it; running it by name does:
+#
+#   docker compose -f .devcontainer/POSIX/docker-compose.yml run --rm builder
+#
+# NF_BUILDER_IMAGE names a prebuilt image for it, as NANOCLR_POSIX_IMAGE does
+# for 'posix'.
+#
+# The 'full' service, Dockerfile.FULL, is both in one image: the native CLR,
+# valgrind and gdb of 'posix' and the managed tools of 'builder'. It is in the
+# 'full' profile and is started the same way; NANOCLR_FULL_IMAGE names a
+# prebuilt image for it:
+#
+#   docker compose -f .devcontainer/POSIX/docker-compose.yml run --rm full
+#
 services:
   posix:
     image: ${NANOCLR_POSIX_IMAGE:-nanoclr-posix:local}
@@ -61,6 +78,66 @@ services:
       - seccomp=unconfined
 
     # Reap zombies left behind by gdb / valgrind child processes.
+    init: true
+
+    stdin_open: true
+    tty: true
+    command: /bin/bash
+
+  builder:
+    image: ${NF_BUILDER_IMAGE:-nf-builder:local}
+    profiles: [builder]
+
+    build:
+      context: .
+      dockerfile: Dockerfile.NFBUILD
+      args:
+        USER_UID: ${USER_UID:-1000}
+        USER_GID: ${USER_GID:-1000}
+
+    user: "${USER_UID:-1000}:${USER_GID:-1000}"
+
+    # The extension's debug bridge expects the debugger library checkout next
+    # to the extension repository, so the directory that holds them is mounted
+    # as /workspace; by default it is the parent directory of this repository.
+    volumes:
+      - ${NF_WORKSPACE:-../../..}:/workspace
+      - ../..:/workspace/nf-interpreter
+      - bashhistory:/home/nano/commandhistory
+
+    working_dir: /workspace
+
+    stdin_open: true
+    tty: true
+    command: /bin/bash
+
+  full:
+    image: ${NANOCLR_FULL_IMAGE:-nanoclr-full:local}
+    profiles: [full]
+
+    build:
+      context: .
+      dockerfile: Dockerfile.FULL
+      args:
+        USER_UID: ${USER_UID:-1000}
+        USER_GID: ${USER_GID:-1000}
+
+    user: "${USER_UID:-1000}:${USER_GID:-1000}"
+
+    # The mounts of 'builder': the repository as in 'posix', and the directory
+    # that holds the extension and debugger library checkouts as /workspace.
+    volumes:
+      - ${NF_WORKSPACE:-../../..}:/workspace
+      - ../..:/workspace/nf-interpreter
+      - bashhistory:/home/nano/commandhistory
+
+    working_dir: /workspace/nf-interpreter
+
+    # As in 'posix': gdb, vgdb and child process reaping.
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp=unconfined
     init: true
 
     stdin_open: true
