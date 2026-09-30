@@ -16,7 +16,7 @@ On a normal exit `ClrStartup` returns without `nanoHAL_Uninitialize()`, the proc
 
 ## How it was found
 
-1. Every HeapStress run ended with `Aborted` / exit code 134 after `HEAPSTRESS RESULT: PASS`, with and without valgrind; `GCCompactionSoak`, which uses no sockets, never ends on its own so it never showed it.
+1. Every HeapStress run ended with `Aborted` / exit code 134 after `HEAPSTRESS RESULT: PASS`, with and without valgrind; [GCCompactionSoak](../../tests/GCCompactionSoak), which uses no sockets, never ends on its own so it never showed it.
 2. gdb on a native run: the abort comes from `std::thread::~thread` called by `ReadinessMonitor::~ReadinessMonitor` from `__cxa_finalize` during unloading of `nanoFramework.nanoCLR.so`.
 
 ## Evidence

@@ -28,7 +28,7 @@ The `posix-x64-memcheck` and `posix-x86-memcheck` presets build the CLR with `NA
 
 ### 2. Run code that reaches the CLR's native paths
 
-Memcheck only sees code that runs. A test that only churns the allocator (`GCCompactionSoak`) found nothing even under full stress. What found the bugs was code that goes through many native methods: first a production application, then [HeapStress](../../tests/HeapStress), written for this purpose. It covers strings, numbers, collections, delegates, exceptions, reflection, threads, timers, finalizers, weak references, streams, JSON, serialization, events and sockets, and checks every result.
+Memcheck only sees code that runs. A test that only churns the allocator ([GCCompactionSoak](../../tests/GCCompactionSoak)) found nothing even under full stress. What found the bugs was code that goes through many native methods: first a production application, then [HeapStress](../../tests/HeapStress), written for this purpose. It covers strings, numbers, collections, delegates, exceptions, reflection, threads, timers, finalizers, weak references, streams, JSON, serialization, events and sockets, and checks every result.
 
 ### 3. Make rare GC timings happen every time
 

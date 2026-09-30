@@ -92,6 +92,7 @@ HeapStress prints `HEAPSTRESS RESULT: PASS` or `FAIL` as its last line. The proc
 |---|---|
 | `targets/posix/doc/` | this description, [HEAP-MEMCHECK.md](HEAP-MEMCHECK.md) ([HEAP-MEMCHECK.pl.md](HEAP-MEMCHECK.pl.md)), the [findings](heap-memcheck-findings/README.md) and the bench notes ([HANDOFF.md](HANDOFF.md), [HANDOFF.pl.md](HANDOFF.pl.md)) |
 | `targets/posix/tests/HeapStress/` | the stress application and its build script |
+| `targets/posix/tests/GCCompactionSoak/` | an endless allocator churn with forced compactions, and its build script |
 | `targets/posix/nanoCLR/HeapAnnotations.cpp` | GC and compaction stress, quarantine and the self-test |
 | `targets/posix/Include/nanoCLR_HeapAnnotations_target.h` | the hooks as memcheck client requests |
 | `src/CLR/Include/nanoCLR_HeapAnnotations.h` | the hooks in shared code, empty on every other target |

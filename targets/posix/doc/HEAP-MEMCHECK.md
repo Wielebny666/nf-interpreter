@@ -300,6 +300,7 @@ The annotations work in whole heap blocks, except for the quarantine's 4-byte id
 | `targets/posix/nanoCLR/CMakeLists.txt` | the `NANO_POSIX_HEAP_MEMCHECK` option |
 | `targets/posix/CMakePresets.json` | the `posix-x64-memcheck` and `posix-x86-memcheck` presets |
 | `targets/posix/tests/HeapStress/` | the stress application and its build script |
+| `targets/posix/tests/GCCompactionSoak/` | an endless allocator churn with forced compactions, and its build script |
 | `targets/posix/doc/heap-memcheck-findings/` | the findings, how they were found, and verification patches |
 | `.devcontainer/POSIX/` | the dev container with every tool above |
 | `.vscode/tasks.json`, `.vscode/launch.json` | build, self-test, valgrind runs and debugging with gdb or vgdb |

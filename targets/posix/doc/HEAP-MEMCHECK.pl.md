@@ -302,6 +302,7 @@ Adnotacje działają na całych heap blockach, poza 4-bajtowym id w kwarantannie
 | `targets/posix/nanoCLR/CMakeLists.txt` | opcja `NANO_POSIX_HEAP_MEMCHECK` |
 | `targets/posix/CMakePresets.json` | presety `posix-x64-memcheck` i `posix-x86-memcheck` |
 | `targets/posix/tests/HeapStress/` | aplikacja stresowa i jej skrypt budujący |
+| `targets/posix/tests/GCCompactionSoak/` | niekończące się mielenie alokatorem z wymuszonymi kompakcjami i jego skrypt budujący |
 | `targets/posix/doc/heap-memcheck-findings/` | znaleziska, jak zostały znalezione, i łatki weryfikacyjne |
 | `.devcontainer/POSIX/` | dev container ze wszystkimi powyższymi narzędziami |
 | `.vscode/tasks.json`, `.vscode/launch.json` | budowanie, self-test, przebiegi valgrinda i debugowanie z gdb albo vgdb |
